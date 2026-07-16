@@ -70,6 +70,24 @@ test("loadConfig appends trimmed reconcile RPC URLs after the primary RPC URL", 
   ]);
 });
 
+test("loadConfig rejects WebSocket base RPC URLs", () => {
+  assert.throws(
+    () => loadConfig({ BASE_RPC_URL: "wss://primary.example" }),
+    /BASE_RPC_URL/,
+  );
+});
+
+test("loadConfig rejects WebSocket reconcile RPC URLs", () => {
+  assert.throws(
+    () =>
+      loadConfig({
+        BASE_RPC_URL: "https://primary.example",
+        RECONCILE_RPC_URLS: "https://fallback-1.example,ws://fallback-2.example,wss://fallback-3.example",
+      }),
+    /RECONCILE_RPC_URLS/,
+  );
+});
+
 test("loadConfig rejects numeric values below the supported minimums", () => {
   assert.throws(
     () => loadConfig({ CONFIRMATIONS: "-1" }),

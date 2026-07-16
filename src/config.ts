@@ -37,6 +37,7 @@ const DEFAULTS = {
 
 const CRAWL_MODES = new Set<CrawlMode>(["auto", "fast", "slow"]);
 const LOG_LEVELS = new Set<LogLevel>(["debug", "info", "warn", "error"]);
+const HTTP_RPC_PROTOCOLS = new Set(["http:", "https:"]);
 
 function readNumber(
   env: NodeJS.ProcessEnv,
@@ -52,6 +53,22 @@ function readNumber(
 
   if (minimum !== undefined && value < minimum) {
     throw new Error(`${key} must be greater than or equal to ${minimum}`);
+  }
+
+  return value;
+}
+
+function readHttpRpcUrl(key: "BASE_RPC_URL" | "RECONCILE_RPC_URLS", value: string): string {
+  let parsedUrl: URL;
+
+  try {
+    parsedUrl = new URL(value);
+  } catch {
+    throw new Error(`${key} must be a valid HTTP or HTTPS URL`);
+  }
+
+  if (!HTTP_RPC_PROTOCOLS.has(parsedUrl.protocol)) {
+    throw new Error(`${key} must use http:// or https://`);
   }
 
   return value;
@@ -73,14 +90,19 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     throw new Error(`LOG_LEVEL must be one of debug, info, warn, or error`);
   }
 
-  const rpcUrl = env.BASE_RPC_URL ?? DEFAULTS.BASE_RPC_URL;
+  const rpcUrl = readHttpRpcUrl(
+    "BASE_RPC_URL",
+    env.BASE_RPC_URL ?? DEFAULTS.BASE_RPC_URL,
+  );
   const reconcileRpcUrls = [
     rpcUrl,
     ...(env.RECONCILE_RPC_URLS ?? DEFAULTS.RECONCILE_RPC_URLS)
       .split(",")
       .map((value) => value.trim())
       .filter((value) => value.length > 0),
-  ];
+  ].map((value, index) =>
+    readHttpRpcUrl(index === 0 ? "BASE_RPC_URL" : "RECONCILE_RPC_URLS", value),
+  );
 
   let contractAddress: string;
   try {
