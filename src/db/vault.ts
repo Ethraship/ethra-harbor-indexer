@@ -250,15 +250,22 @@ function ensureVaultRewardStateRow(db: Database.Database, id: string): void {
   `).run(id);
 }
 
-export function getOrCreateVaultCursor(db: Database.Database, config: AppConfig): number {
+export function readVaultCursor(db: Database.Database, config: AppConfig): number | null {
   const id = vaultCursorId(config);
-  const existingCursor = db.prepare(
+  const row = db.prepare(
     "SELECT last_scanned_block FROM indexer_state WHERE id = ?",
   ).get(id) as { last_scanned_block: number } | undefined;
 
-  if (existingCursor) {
+  return row ? row.last_scanned_block : null;
+}
+
+export function getOrCreateVaultCursor(db: Database.Database, config: AppConfig): number {
+  const id = vaultCursorId(config);
+  const existingCursor = readVaultCursor(db, config);
+
+  if (existingCursor !== null) {
     ensureVaultRewardStateRow(db, id);
-    return existingCursor.last_scanned_block;
+    return existingCursor;
   }
 
   db.prepare(`
@@ -281,13 +288,11 @@ export function getOrCreateVaultCursor(db: Database.Database, config: AppConfig)
   return config.startBlock;
 }
 
-export function readVaultState(
+function readVaultStateRow(
   db: Database.Database,
   config: AppConfig,
-): VaultRewardState {
+): VaultRewardState | null {
   const id = vaultCursorId(config);
-  ensureVaultRewardStateRow(db, id);
-
   const row = db.prepare(`
     SELECT
       global_performance_fee_index_raw,
@@ -303,7 +308,11 @@ export function readVaultState(
     cumulative_performance_fee_shares_raw: string;
     cumulative_management_fee_shares_raw: string;
     updated_block_number: number;
-  };
+  } | undefined;
+
+  if (!row) {
+    return null;
+  }
 
   return {
     globalIndexRaw: row.global_performance_fee_index_raw,
@@ -312,6 +321,23 @@ export function readVaultState(
     cumulativeMgmtFeeSharesRaw: row.cumulative_management_fee_shares_raw,
     updatedBlockNumber: row.updated_block_number,
   };
+}
+
+export function readVaultStateSnapshot(
+  db: Database.Database,
+  config: AppConfig,
+): VaultRewardState {
+  return readVaultStateRow(db, config) ?? { ...ZERO_VAULT_REWARD_STATE };
+}
+
+export function readVaultState(
+  db: Database.Database,
+  config: AppConfig,
+): VaultRewardState {
+  const id = vaultCursorId(config);
+  ensureVaultRewardStateRow(db, id);
+
+  return readVaultStateRow(db, config) ?? { ...ZERO_VAULT_REWARD_STATE };
 }
 
 export function upsertVaultState(

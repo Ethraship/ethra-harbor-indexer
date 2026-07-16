@@ -4,7 +4,7 @@ import { getAddress } from "ethers";
 import type Database from "better-sqlite3";
 
 import type { AppConfig } from "../config";
-import { getOrCreateVaultCursor } from "../db";
+import { readVaultCursor } from "../db";
 import { getAccountMetrics, getVaultMetrics } from "./queries";
 
 export interface ApiServerDependencies {
@@ -41,7 +41,7 @@ export function createApiServer(dependencies: ApiServerDependencies): http.Serve
     if (url.pathname === "/health") {
       writeJson(response, 200, {
         status: "ok",
-        cursorBlock: getOrCreateVaultCursor(db, config),
+        cursorBlock: readVaultCursor(db, config),
         safeHeadKnown: false,
       });
       return;

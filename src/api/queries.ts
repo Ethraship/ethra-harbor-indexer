@@ -1,7 +1,11 @@
 import type Database from "better-sqlite3";
 
 import type { AppConfig } from "../config";
-import { readAccountPosition, readLatestSnapshot, readVaultState } from "../db";
+import {
+  readAccountPosition,
+  readLatestSnapshot,
+  readVaultStateSnapshot,
+} from "../db";
 import { settle, type AccountLedger, SCALE } from "../indexer/ledger";
 import { valueOfShares } from "../snapshot/sharePrice";
 
@@ -58,7 +62,7 @@ export function getAccountMetrics(
   address: string,
 ): AccountMetricsResponse {
   const position = readAccountPosition(db, address);
-  const vaultState = readVaultState(db, config);
+  const vaultState = readVaultStateSnapshot(db, config);
   const snapshot = readLatestSnapshot(db);
   const account = toAccountLedger(position);
 
@@ -119,7 +123,7 @@ export function getAccountMetrics(
 }
 
 export function getVaultMetrics(db: Database.Database, config: AppConfig): VaultMetricsResponse {
-  const vaultState = readVaultState(db, config);
+  const vaultState = readVaultStateSnapshot(db, config);
   const snapshot = readLatestSnapshot(db);
   const sharePriceScale = (10n ** 18n).toString();
 

@@ -2,6 +2,10 @@
 
 ## 2026-07-16
 
+- Area: read-only HTTP API cursor reads
+- Changed: split the API onto snapshot-only repository helpers for `/health`, `/vault`, and `/accounts/:address` so GET requests no longer create `indexer_state` or `vault_reward_state` rows on a fresh database.
+- Why: ordinary reads must stay non-mutating, even before the crawler has seeded any vault state.
+
 - Area: read-only HTTP API
 - Changed: added a built-in `node:http` read API for `/health`, `/vault`, and `/accounts/:address`, plus query helpers that perform read-time fee settlement without persistence and return null valuation fields when no snapshot exists yet.
 - Why: Task 7 exposes the indexed vault/account metrics over JSON without introducing bootstrap wiring or per-request RPC calls.

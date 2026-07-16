@@ -137,6 +137,90 @@ test("api serves account, vault, and health metrics from indexed state", async (
   });
 });
 
+test("api GETs do not seed rows on a freshly migrated database", async (t) => {
+  const db = openDatabase(":memory:");
+  const config = createConfig();
+  const account = "0x4444444444444444444444444444444444444444";
+  const server = createApiServer({ db, config });
+
+  t.after(async () => {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+    closeDatabase(db);
+  });
+
+  runMigrations(db);
+
+  const baseUrl = await startServer(server);
+  const [healthRes, vaultRes, accountRes] = await Promise.all([
+    fetch(`${baseUrl}/health`),
+    fetch(`${baseUrl}/vault`),
+    fetch(`${baseUrl}/accounts/${account}`),
+  ]);
+
+  assert.equal(healthRes.status, 200);
+  assert.equal(vaultRes.status, 200);
+  assert.equal(accountRes.status, 200);
+
+  assert.deepEqual(await healthRes.json(), {
+    status: "ok",
+    cursorBlock: null,
+    safeHeadKnown: false,
+  });
+  assert.deepEqual(await vaultRes.json(), {
+    totalSupplyRaw: "0",
+    totalAssetsRaw: null,
+    sharePriceScaledRaw: null,
+    sharePriceScale: "1000000000000000000",
+    cumulativePerformanceFeeSharesRaw: "0",
+    cumulativePerformanceFeeValueRaw: null,
+    valuationBlock: null,
+    valuationTime: null,
+  });
+  assert.deepEqual(await accountRes.json(), {
+    address: account,
+    activeDeposit: {
+      shares: "0",
+      valueRaw: null,
+    },
+    lifetimeDeposited: {
+      raw: "0",
+    },
+    lifetimeWithdrawn: {
+      raw: "0",
+    },
+    lifetimeEarned: {
+      raw: null,
+    },
+    earnedPerformanceFee: {
+      shares: "0",
+      valueRaw: null,
+    },
+    valuationBlock: null,
+    valuationTime: null,
+  });
+
+  const indexerStateCount = db.prepare("SELECT COUNT(*) AS count FROM indexer_state").get() as {
+    count: number;
+  };
+  const vaultRewardStateCount = db.prepare(
+    "SELECT COUNT(*) AS count FROM vault_reward_state",
+  ).get() as {
+    count: number;
+  };
+
+  assert.equal(indexerStateCount.count, 0);
+  assert.equal(vaultRewardStateCount.count, 0);
+});
+
 test("api returns zeros for unknown accounts and 400 for invalid addresses", async (t) => {
   const db = openDatabase(":memory:");
   const config = createConfig();
