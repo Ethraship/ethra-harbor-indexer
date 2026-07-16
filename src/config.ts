@@ -11,6 +11,9 @@ export interface AppConfig {
   databasePath: string;
   startBlock: number;
   confirmations: number;
+  snapshotIntervalMs: number;
+  apiEnabled: boolean;
+  apiPort: number;
   chunkSize: number;
   blockTimeMs: number;
   fastPollMs: number;
@@ -24,8 +27,11 @@ const DEFAULTS = {
   BASE_RPC_URL: "https://base-rpc.publicnode.com",
   BASE_CONTRACT_ADDRESS: "0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d",
   DATABASE_PATH: "./data/ethra-harbor-indexer.sqlite",
-  START_BLOCK: "0",
-  CONFIRMATIONS: "2",
+  START_BLOCK: "48578255",
+  CONFIRMATIONS: "15",
+  SNAPSHOT_INTERVAL_MS: "60000",
+  API_ENABLED: "true",
+  API_PORT: "8080",
   CHUNK_SIZE: "1000",
   BASE_BLOCK_TIME_MS: "2000",
   FAST_POLL_MS: "2000",
@@ -72,6 +78,10 @@ function readHttpRpcUrl(key: "BASE_RPC_URL" | "RECONCILE_RPC_URLS", value: strin
   }
 
   return value;
+}
+
+export function vaultCursorId(config: AppConfig): string {
+  return `base:vault:${config.contractAddress.toLowerCase()}`;
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
@@ -121,6 +131,15 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
     databasePath: env.DATABASE_PATH ?? DEFAULTS.DATABASE_PATH,
     startBlock: readNumber(env, "START_BLOCK", 0),
     confirmations: readNumber(env, "CONFIRMATIONS", 0),
+    snapshotIntervalMs: readNumber(env, "SNAPSHOT_INTERVAL_MS", 1000),
+    apiEnabled: (env.API_ENABLED ?? DEFAULTS.API_ENABLED) !== "false",
+    apiPort: (() => {
+      const port = readNumber(env, "API_PORT", 1);
+      if (port > 65535) {
+        throw new Error(`API_PORT must be less than or equal to 65535`);
+      }
+      return port;
+    })(),
     chunkSize: readNumber(env, "CHUNK_SIZE", 1),
     blockTimeMs: readNumber(env, "BASE_BLOCK_TIME_MS", 1),
     fastPollMs: readNumber(env, "FAST_POLL_MS", 250),

@@ -14,15 +14,28 @@ test("loadConfig returns the documented defaults", () => {
     reconcileRpcUrls: ["https://base-rpc.publicnode.com"],
     contractAddress: getAddress("0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d"),
     databasePath: "./data/ethra-harbor-indexer.sqlite",
-    startBlock: 0,
-    confirmations: 2,
+    startBlock: 48578255,
+    confirmations: 15,
     chunkSize: 1000,
     blockTimeMs: 2000,
     fastPollMs: 2000,
     slowPollMs: 50000,
+    snapshotIntervalMs: 60000,
+    apiEnabled: true,
+    apiPort: 8080,
     crawlMode: "auto",
     logLevel: "info",
   });
+});
+
+test("defaults include snapshot + api config", () => {
+  const c = loadConfig({ BASE_CHAIN_ID: "8453" } as NodeJS.ProcessEnv);
+
+  assert.equal(c.confirmations, 15);
+  assert.equal(c.startBlock, 48578255);
+  assert.equal(c.snapshotIntervalMs, 60000);
+  assert.equal(c.apiEnabled, true);
+  assert.equal(c.apiPort, 8080);
 });
 
 test("loadConfig rejects an invalid crawl mode", () => {
@@ -104,6 +117,24 @@ test("loadConfig rejects numeric values below the supported minimums", () => {
   assert.throws(
     () => loadConfig({ SLOW_POLL_MS: "999" }),
     /SLOW_POLL_MS/,
+  );
+});
+
+test("rejects snapshot interval below minimum", () => {
+  assert.throws(() =>
+    loadConfig({
+      BASE_CHAIN_ID: "8453",
+      SNAPSHOT_INTERVAL_MS: "100",
+    } as NodeJS.ProcessEnv),
+  );
+});
+
+test("rejects invalid api port", () => {
+  assert.throws(() =>
+    loadConfig({
+      BASE_CHAIN_ID: "8453",
+      API_PORT: "0",
+    } as NodeJS.ProcessEnv),
   );
 });
 
