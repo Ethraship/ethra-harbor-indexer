@@ -32,7 +32,7 @@ npm start
 | --- | --- | --- | --- |
 | `BASE_CHAIN_ID` | Base chain guard. | `8453` | Must stay `8453`. |
 | `BASE_RPC_URL` | Primary Base HTTP(S) RPC used for heads and log backfill. | `https://base-rpc.publicnode.com` | Use a reliable Base RPC, preferably one with historical archive access for the initial backfill. |
-| `BASE_CONTRACT_ADDRESS` | Morpho Vault contract to index. | `0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d` | Keep set to the verified contract unless the deployment changes. |
+| `BASE_CONTRACT_ADDRESS` | Morpho Vault contract to index. | `0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d` | Production stays fixed at this verified contract; override only for local testing. |
 | `DATABASE_PATH` | SQLite file path. | `./data/ethra-harbor-indexer.sqlite` | Put this on persistent storage. |
 | `START_BLOCK` | First cursor value when the cursor row is created. | `0` | Use `48578255` for full contract history or `48678603` for deposit-only catch-up. |
 | `CONFIRMATIONS` | Blocks to wait before scanning. | `2` | Keep a small nonzero buffer on Base. |
