@@ -2,6 +2,10 @@
 
 ## 2026-07-16
 
+- Area: bootstrap wiring
+- Changed: wired `src/index.ts` to build one shared Base provider client after migrations, start the vault crawler and share-price snapshotter, optionally bring up the HTTP API on `apiPort`, and drain crawler, snapshotter, API server, and DB during signal shutdown.
+- Why: Task 8 connects the completed crawler, snapshotter, and API pieces into the actual backend startup path.
+
 - Area: read-only HTTP API cursor reads
 - Changed: split the API onto snapshot-only repository helpers for `/health`, `/vault`, and `/accounts/:address` so GET requests no longer create `indexer_state` or `vault_reward_state` rows on a fresh database.
 - Why: ordinary reads must stay non-mutating, even before the crawler has seeded any vault state.

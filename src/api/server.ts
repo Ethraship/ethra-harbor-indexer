@@ -15,7 +15,7 @@ export interface ApiServerDependencies {
 function writeJson(
   response: http.ServerResponse,
   statusCode: number,
-  body: Record<string, unknown>,
+  body: unknown,
 ): void {
   response.statusCode = statusCode;
   response.setHeader("Content-Type", "application/json");

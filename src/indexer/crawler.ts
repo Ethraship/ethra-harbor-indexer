@@ -99,10 +99,10 @@ export class VaultCrawler {
     }
 
     try {
-      const depositFragment = this.iface.getEvent("Deposit");
-      const withdrawFragment = this.iface.getEvent("Withdraw");
-      const transferFragment = this.iface.getEvent("Transfer");
-      const accrueFragment = this.iface.getEvent("AccrueInterest");
+      const depositFragment = this.iface.getEvent("Deposit")!;
+      const withdrawFragment = this.iface.getEvent("Withdraw")!;
+      const transferFragment = this.iface.getEvent("Transfer")!;
+      const accrueFragment = this.iface.getEvent("AccrueInterest")!;
       const topics = [[
         depositFragment.topicHash,
         withdrawFragment.topicHash,
