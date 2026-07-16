@@ -67,6 +67,7 @@ export class DepositCrawler {
   private readonly iface: ethers.Interface;
   private readonly logger: CrawlerDependencies["logger"];
   private timer: ReturnType<typeof setTimeout> | null = null;
+  private activeRunLoop: Promise<void> | null = null;
   private stopped = true;
 
   constructor(dependencies: CrawlerDependencies) {
@@ -111,10 +112,17 @@ export class DepositCrawler {
         fromBlock: range.fromBlock,
         toBlock: range.toBlock,
       });
-      const deposits = [...logs]
-        .sort(compareLogs)
-        .map((log) => parseDepositLog(log, this.iface, this.config))
-        .filter((deposit): deposit is NonNullable<typeof deposit> => deposit !== null);
+      const deposits = [...logs].sort(compareLogs).map((log) => {
+        const deposit = parseDepositLog(log, this.iface, this.config);
+
+        if (!deposit) {
+          throw new Error(
+            `encountered undecodable Deposit log for ${log.transactionHash}:${log.index} in chunk ${range.fromBlock}-${range.toBlock}`,
+          );
+        }
+
+        return deposit;
+      });
 
       saveDepositsAndCursor(this.db, this.config, deposits, range.toBlock);
 
@@ -162,13 +170,15 @@ export class DepositCrawler {
     this.schedule(0);
   }
 
-  stop(): void {
+  async stop(): Promise<void> {
     this.stopped = true;
 
     if (this.timer) {
       clearTimeout(this.timer);
       this.timer = null;
     }
+
+    await this.activeRunLoop;
   }
 
   private schedule(delayMs: number): void {
@@ -177,13 +187,21 @@ export class DepositCrawler {
     }
 
     this.timer = setTimeout(async () => {
-      await this.runLoop();
+      this.timer = null;
+      const runLoop = this.runLoop();
+      this.activeRunLoop = runLoop;
+
+      try {
+        await runLoop;
+      } finally {
+        if (this.activeRunLoop === runLoop) {
+          this.activeRunLoop = null;
+        }
+      }
     }, delayMs);
   }
 
   private async runLoop(): Promise<void> {
-    this.timer = null;
-
     try {
       const result = await this.tick();
 

@@ -25,19 +25,31 @@ function bootstrap(): void {
     logger,
   });
 
-  const shutdown = (signal: "SIGINT" | "SIGTERM") => {
+  const shutdown = async (signal: "SIGINT" | "SIGTERM") => {
     if (shuttingDown) {
       return;
     }
 
     shuttingDown = true;
     logger.info("shutdown requested", { signal });
-    crawler.stop();
-    closeDatabase(db);
+
+    try {
+      await crawler.stop();
+      closeDatabase(db);
+      logger.info("shutdown complete", { signal });
+    } catch (error) {
+      const message = error instanceof Error ? error.message : String(error);
+      logger.error("shutdown failed", { signal, message });
+      process.exitCode = 1;
+    }
   };
 
-  process.once("SIGINT", () => shutdown("SIGINT"));
-  process.once("SIGTERM", () => shutdown("SIGTERM"));
+  process.once("SIGINT", () => {
+    void shutdown("SIGINT");
+  });
+  process.once("SIGTERM", () => {
+    void shutdown("SIGTERM");
+  });
 
   logger.info("starting deposit crawler", {
     contractAddress: config.contractAddress,

@@ -78,7 +78,15 @@ function createProvider(options: {
   heads: number[];
   logsByRange?: Record<string, Log[]>;
   failingRanges?: Record<string, Error>;
-  calls?: Array<{ type: "head" } | { type: "logs"; key: string }>;
+  calls?: Array<
+    | { type: "head" }
+    | {
+        type: "logs";
+        key: string;
+        address?: string | string[];
+        topics?: Array<string | Array<string | null> | null>;
+      }
+  >;
 }): BaseProviderClient {
   const heads = [...options.heads];
 
@@ -89,7 +97,12 @@ function createProvider(options: {
     },
     async getLogs(filter): Promise<Log[]> {
       const key = `${filter.fromBlock}-${filter.toBlock}`;
-      options.calls?.push({ type: "logs", key });
+      options.calls?.push({
+        type: "logs",
+        key,
+        address: filter.address,
+        topics: filter.topics,
+      });
 
       const error = options.failingRanges?.[key];
       if (error) {
@@ -105,7 +118,15 @@ test("tick processes two chunks with sorted deposits and exact deposit filters",
   const db = openDatabase(":memory:");
   const config = createConfig();
   const iface = new Interface(MORPHO_VAULT_ABI);
-  const calls: Array<{ type: "head" } | { type: "logs"; key: string }> = [];
+  const calls: Array<
+    | { type: "head" }
+    | {
+        type: "logs";
+        key: string;
+        address?: string | string[];
+        topics?: Array<string | Array<string | null> | null>;
+      }
+  > = [];
   const provider = createProvider({
     heads: [106, 106],
     logsByRange: {
@@ -169,9 +190,19 @@ test("tick processes two chunks with sorted deposits and exact deposit filters",
 
     assert.deepEqual(calls, [
       { type: "head" },
-      { type: "logs", key: "101-102" },
+      {
+        type: "logs",
+        key: "101-102",
+        address: config.contractAddress,
+        topics: [iface.getEvent("Deposit").topicHash],
+      },
       { type: "head" },
-      { type: "logs", key: "103-104" },
+      {
+        type: "logs",
+        key: "103-104",
+        address: config.contractAddress,
+        topics: [iface.getEvent("Deposit").topicHash],
+      },
     ]);
 
     const deposits = db.prepare(
@@ -321,6 +352,69 @@ test("tick records chunk failures without advancing the cursor", async () => {
   }
 });
 
+test("tick rejects undecodable deposit logs, records the crawl error, and leaves the cursor unchanged", async () => {
+  const db = openDatabase(":memory:");
+  const config = createConfig();
+  const iface = new Interface(MORPHO_VAULT_ABI);
+  const malformedLog = createDepositLog(iface, {
+    blockNumber: 101,
+    transactionHash: "0xtx-bad-deposit",
+  });
+  const provider = createProvider({
+    heads: [105],
+    logsByRange: {
+      "101-102": [
+        {
+          ...malformedLog,
+          data: "0x1234",
+        },
+      ],
+    },
+  });
+
+  try {
+    runMigrations(db);
+
+    const crawler = new DepositCrawler({
+      config,
+      db,
+      provider,
+      iface,
+      logger: createLogger(),
+    });
+
+    await assert.rejects(
+      () => crawler.tick(),
+      /undecodable Deposit log/,
+    );
+
+    const cursor = getOrCreateCursor(db, config);
+    const deposits = db.prepare("SELECT COUNT(*) AS count FROM deposit_events").get() as {
+      count: number;
+    };
+    const errors = db.prepare(
+      "SELECT from_block, to_block, message FROM crawl_errors",
+    ).all() as Array<{
+      from_block: number;
+      to_block: number;
+      message: string;
+    }>;
+
+    assert.equal(cursor, 100);
+    assert.equal(deposits.count, 0);
+    assert.deepEqual(errors, [
+      {
+        from_block: 101,
+        to_block: 102,
+        message:
+          "encountered undecodable Deposit log for 0xtx-bad-deposit:0 in chunk 101-102",
+      },
+    ]);
+  } finally {
+    closeDatabase(db);
+  }
+});
+
 test("nextDelayMs respects fast, slow, and auto scheduling modes", () => {
   assert.equal(nextDelayMs(createConfig({ crawlMode: "fast" }), false), 2000);
   assert.equal(nextDelayMs(createConfig({ crawlMode: "slow" }), true), 50000);
@@ -376,6 +470,76 @@ test("start schedules fast then slow in auto mode and stop clears the pending ti
 
     assert.deepEqual(scheduledDelays, [0, 2000, 50000]);
     assert.deepEqual(clearedHandles, [{ id: 3 }]);
+  } finally {
+    global.setTimeout = originalSetTimeout;
+    global.clearTimeout = originalClearTimeout;
+    closeDatabase(db);
+  }
+});
+
+test("stop waits for the active run loop to finish before resolving", async () => {
+  const db = openDatabase(":memory:");
+  const config = createConfig({ chunkSize: 2 });
+  const iface = new Interface(MORPHO_VAULT_ABI);
+  const provider = createProvider({
+    heads: [102],
+    logsByRange: {
+      "101-100": [],
+    },
+  });
+  const queued: Array<() => void | Promise<void>> = [];
+  const originalSetTimeout = global.setTimeout;
+  const originalClearTimeout = global.clearTimeout;
+  let resolveTick: (() => void) | undefined;
+  let tickFinished = false;
+
+  global.setTimeout = ((fn: () => void | Promise<void>) => {
+    queued.push(fn);
+    return { id: queued.length } as ReturnType<typeof setTimeout>;
+  }) as typeof setTimeout;
+  global.clearTimeout = (() => {}) as typeof clearTimeout;
+
+  try {
+    runMigrations(db);
+
+    const crawler = new DepositCrawler({
+      config,
+      db,
+      provider,
+      iface,
+      logger: createLogger(),
+    });
+    const originalTick = crawler.tick.bind(crawler);
+
+    crawler.tick = async () => {
+      await new Promise<void>((resolve) => {
+        resolveTick = resolve;
+      });
+      const result = await originalTick();
+      tickFinished = true;
+      return result;
+    };
+
+    crawler.start();
+
+    const runLoop = queued.shift();
+    assert.ok(runLoop);
+    const activeRun = Promise.resolve(runLoop());
+    const stopPromise = crawler.stop();
+    let stopResolved = false;
+    void stopPromise.then(() => {
+      stopResolved = true;
+    });
+
+    await Promise.resolve();
+    assert.equal(stopResolved, false);
+
+    resolveTick?.();
+    await activeRun;
+    await stopPromise;
+
+    assert.equal(tickFinished, true);
+    assert.equal(stopResolved, true);
   } finally {
     global.setTimeout = originalSetTimeout;
     global.clearTimeout = originalClearTimeout;
