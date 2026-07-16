@@ -48,10 +48,14 @@ export type DecodedVaultEvent =
       base: BaseLogFields;
     };
 
-function buildBaseLogFields(log: Log, config: AppConfig): BaseLogFields {
+function buildBaseLogFields(
+  log: Log,
+  config: AppConfig,
+  contractAddress: string,
+): BaseLogFields {
   return {
     chainId: config.chainId,
-    contractAddress: getAddress(log.address),
+    contractAddress,
     blockNumber: log.blockNumber,
     blockHash: log.blockHash,
     txHash: log.transactionHash,
@@ -67,6 +71,24 @@ export function decodeVaultLog(
   iface: Interface,
   config: AppConfig,
 ): DecodedVaultEvent | null {
+  if (config.chainId !== 8453) {
+    return null;
+  }
+
+  let logContractAddress: string;
+  let configContractAddress: string;
+
+  try {
+    logContractAddress = getAddress(log.address);
+    configContractAddress = getAddress(config.contractAddress);
+  } catch {
+    return null;
+  }
+
+  if (logContractAddress !== configContractAddress) {
+    return null;
+  }
+
   let parsedLog;
 
   try {
@@ -79,7 +101,7 @@ export function decodeVaultLog(
     return null;
   }
 
-  const base = buildBaseLogFields(log, config);
+  const base = buildBaseLogFields(log, config, logContractAddress);
 
   switch (parsedLog.name) {
     case "Deposit":

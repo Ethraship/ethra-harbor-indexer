@@ -1,7 +1,7 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { Interface, ZeroAddress, getAddress, type Log } from "ethers";
+import { Interface, getAddress, type Log } from "ethers";
 
 import { MORPHO_VAULT_ABI } from "../src/abi/morphoVault";
 import type { AppConfig } from "../src/config";
@@ -12,7 +12,7 @@ function createConfig(overrides: Partial<AppConfig> = {}): AppConfig {
     chainId: 8453,
     rpcUrl: "https://base-rpc.publicnode.com",
     reconcileRpcUrls: ["https://base-rpc.publicnode.com"],
-    contractAddress: "0x9D2F57159ECA69265A9B9efAaA8Bc2B6B2df364d",
+    contractAddress: getAddress("0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d"),
     databasePath: "./data/test.sqlite",
     startBlock: 123,
     confirmations: 2,
@@ -67,7 +67,7 @@ test("decodeVaultLog returns normalized deposit fields", () => {
   const iface = new Interface(MORPHO_VAULT_ABI);
   const log = createLog(iface, "Deposit", [
     "0x1111111111111111111111111111111111111111",
-    "0x2222222222222222222222222222222222222222",
+    "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
     1234567890123456789n,
     987654321098765432n,
   ]);
@@ -77,7 +77,7 @@ test("decodeVaultLog returns normalized deposit fields", () => {
 
     assert.deepEqual(decoded, {
       kind: "deposit",
-      onBehalf: "0x2222222222222222222222222222222222222222",
+      onBehalf: getAddress("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"),
       assets: "1234567890123456789",
       shares: "987654321098765432",
       base: {
@@ -98,8 +98,8 @@ test("decodeVaultLog returns normalized deposit fields", () => {
 test("decodeVaultLog returns normalized withdraw fields", () => {
   const iface = new Interface(MORPHO_VAULT_ABI);
   const log = createLog(iface, "Withdraw", [
-    "0x3333333333333333333333333333333333333333",
-    "0x4444444444444444444444444444444444444444",
+    "0x1234567890abcdef1234567890abcdef12345678",
+    "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
     "0x5555555555555555555555555555555555555555",
     555n,
     444n,
@@ -108,8 +108,8 @@ test("decodeVaultLog returns normalized withdraw fields", () => {
   withMockedDateNow(1712345678001, () => {
     assert.deepEqual(decodeVaultLog(log, iface, createConfig()), {
       kind: "withdraw",
-      sender: "0x3333333333333333333333333333333333333333",
-      receiver: "0x4444444444444444444444444444444444444444",
+      sender: getAddress("0x1234567890abcdef1234567890abcdef12345678"),
+      receiver: getAddress("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"),
       onBehalf: "0x5555555555555555555555555555555555555555",
       assets: "555",
       shares: "444",
@@ -131,16 +131,16 @@ test("decodeVaultLog returns normalized withdraw fields", () => {
 test("decodeVaultLog returns normalized transfer fields", () => {
   const iface = new Interface(MORPHO_VAULT_ABI);
   const log = createLog(iface, "Transfer", [
-    ZeroAddress,
-    "0x6666666666666666666666666666666666666666",
+    "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+    "0x1234567890abcdef1234567890abcdef12345678",
     222n,
   ]);
 
   withMockedDateNow(1712345678002, () => {
     assert.deepEqual(decodeVaultLog(log, iface, createConfig()), {
       kind: "transfer",
-      from: ZeroAddress,
-      to: "0x6666666666666666666666666666666666666666",
+      from: getAddress("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"),
+      to: getAddress("0x1234567890abcdef1234567890abcdef12345678"),
       shares: "222",
       base: {
         chainId: 8453,
@@ -202,4 +202,52 @@ test("decodeVaultLog returns null for a garbage-topic log", () => {
   );
 
   assert.equal(decoded, null);
+});
+
+test("decodeVaultLog returns null for the wrong chain id", () => {
+  const iface = new Interface(MORPHO_VAULT_ABI);
+  const log = createLog(iface, "Deposit", [
+    "0x1111111111111111111111111111111111111111",
+    "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+    1n,
+    2n,
+  ]);
+
+  assert.equal(
+    decodeVaultLog(log, iface, createConfig({ chainId: 1 })),
+    null,
+  );
+});
+
+test("decodeVaultLog returns null for a non-target contract address", () => {
+  const iface = new Interface(MORPHO_VAULT_ABI);
+  const log = createLog(
+    iface,
+    "Withdraw",
+    [
+      "0x1234567890abcdef1234567890abcdef12345678",
+      "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+      "0x5555555555555555555555555555555555555555",
+      5n,
+      4n,
+    ],
+    {
+      address: "0x0000000000000000000000000000000000000001",
+    },
+  );
+
+  assert.equal(decodeVaultLog(log, iface, createConfig()), null);
+});
+
+test("decodeVaultLog returns null for an invalid log address", () => {
+  const iface = new Interface(MORPHO_VAULT_ABI);
+  const log = createLog(iface, "Transfer", [
+    "0xabcdefabcdefabcdefabcdefabcdefabcdefabcd",
+    "0x1234567890abcdef1234567890abcdef12345678",
+    222n,
+  ], {
+    address: "not-an-address",
+  });
+
+  assert.equal(decodeVaultLog(log, iface, createConfig()), null);
 });
