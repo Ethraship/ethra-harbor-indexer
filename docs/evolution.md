@@ -33,3 +33,7 @@
 - Area: ledger accumulator semantics
 - Changed: made deposit and withdraw ledger handlers lifetime-only metadata updates, and moved all share supply changes to transfer mint/burn paths.
 - Why: share balances and total supply should stay canonical to `Transfer` events while deposit and withdraw remain attribution metadata for lifetime assets.
+
+- Area: full vault position and fee-attribution indexer documentation
+- Changed: updated `README.md`, `docs/overview.md`, and new `docs/architecture.md` to document the shipped four-event crawler, atomic `applyChunk` flow, ledger accumulator, periodic share-price snapshotter, read-only API, strict config defaults (`START_BLOCK=48578255`, `CONFIRMATIONS=15`, `SNAPSHOT_INTERVAL_MS`, `API_*`), and the dev-stage SQLite reset path.
+- Why: the backend now ships as a full position + fee-attribution indexer rather than a deposit-only crawler, and the project docs need to match the live schema, API surface, confirmation policy, and operational recovery model.

@@ -10,14 +10,20 @@ Vault V2:
 `0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d`
 
 Its job is to crawl deterministic on-chain vault events over HTTP JSON-RPC,
-persist replayable SQLite state, and expose read-only wallet and vault metrics.
-Wallet address is the only identity.
+persist replayable SQLite state, periodically snapshot vault valuation, and
+expose read-only wallet and vault metrics. Wallet address is the only identity.
 
 ## Current Scope
 
-The active development goal is to evolve the existing deposit-only crawler into
-a stateful position and performance-fee-attribution indexer. For each wallet
-address, the backend should answer:
+The shipped backend is a stateful position and performance-fee-attribution
+indexer. It processes four vault events:
+
+- `Deposit`
+- `Withdraw`
+- `Transfer`
+- `AccrueInterest`
+
+For each wallet address, the backend answers:
 
 - active vault share balance and USDC value
 - lifetime USDC deposited
@@ -25,8 +31,8 @@ address, the backend should answer:
 - approximate lifetime earned, labeled as analytics
 - performance-fee shares attributable to that wallet's position and USDC value
 
-Vault-level reads should expose total supply, latest share-price snapshot, and
-cumulative performance-fee shares and value.
+Vault-level reads expose total supply, latest share-price snapshot, share price,
+and cumulative performance-fee shares and value.
 
 ## System Shape
 
@@ -34,8 +40,17 @@ This project is a backend service only. It uses TypeScript, CommonJS, `ethers`,
 `better-sqlite3`, `node:test`, HTTP RPC crawling, SQLite persistence, structured
 logs, and explicit environment configuration.
 
-It does not include frontend, mobile, wallet UX, identity aggregation, reward
-minting, WebSocket subscriptions, or user-profile logic.
+It does not include frontend, mobile, wallet UX, identity aggregation across
+multiple wallets, reward minting, WebSocket subscriptions, or user-profile
+logic.
+
+## Non-Goals
+
+- No multi-wallet identity mapping or external account system
+- No write API, admin panel, or operator console
+- No real-time push transport; polling and snapshots only
+- No management-fee attribution beyond tracking vault-level cumulative totals
+- No full automatic deep-reorg rollback in v1
 
 ## Operational Assumptions
 

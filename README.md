@@ -1,15 +1,58 @@
 # ethra-harbor-indexer
 
-Ethra Harbor Indexer is a standalone Base mainnet deposit indexer for the verified Morpho Vault V2-style contract at `0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d`.
+Ethra Harbor Indexer is a standalone Base mainnet backend for the verified
+Morpho Vault V2-style contract at
+`0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d`.
 
-It is independent from CIFER and only borrows the blackbox HTTP reconciliation pattern. There are no websockets, sockets, live listeners, or multi-chain code paths.
+It crawls deterministic on-chain vault activity over HTTP JSON-RPC, stores
+replayable SQLite state, periodically snapshots vault valuation, and exposes a
+read-only HTTP API keyed only by wallet address.
 
-## What It Does
+## What It Indexes
 
-- Crawls `Deposit(address indexed sender, address indexed onBehalf, uint256 assets, uint256 shares)` logs from the Base contract.
-- Decodes and stores `sender`, `on_behalf`, `assets`, and `shares` in SQLite.
-- Advances a per-contract cursor in `indexer_state.last_scanned_block`.
-- Reconciles through HTTP RPC endpoints only, with optional fallback URLs for head and log requests.
+Each crawl chunk fetches and processes these four vault events in strict
+`(block_number, transaction_index, log_index)` order:
+
+- `Deposit`
+- `Withdraw`
+- `Transfer`
+- `AccrueInterest`
+
+The indexer uses them with distinct roles:
+
+- `Transfer` is the canonical source of share balances and total supply.
+- `Deposit` and `Withdraw` update lifetime USDC attribution only.
+- `AccrueInterest` advances the global performance-fee-per-share accumulator.
+
+## What The API Answers
+
+For each wallet address, the backend exposes five metrics:
+
+1. Active deposit: current vault share balance and snapshot-based USDC value
+2. Lifetime deposited: cumulative USDC deposited on behalf of the wallet
+3. Lifetime withdrawn: cumulative USDC withdrawn on behalf of the wallet
+4. Lifetime earned: `max(0, active value + lifetime withdrawn - lifetime deposited)`
+5. Earned performance fee: attributable performance-fee shares and USDC value
+
+Vault-level reads expose current indexed total supply, latest snapshot totals,
+share price, and cumulative attributable performance-fee totals.
+
+## Accumulator And Snapshot Model
+
+Performance-fee attribution uses a staking-style global accumulator:
+
+- `vault_reward_state.global_performance_fee_index_raw` tracks fee shares per
+  unit of vault shares, scaled by `1e36`.
+- Each account stores `balance_raw`, `reward_debt_raw`, and
+  `earned_performance_fee_shares_raw`.
+- `AccrueInterest` increases the global index using the pre-mint total supply.
+- `Transfer` settles sender/receiver against the current index before shares
+  move.
+
+USDC valuation does not happen during crawling. A separate snapshotter reads
+`totalAssets()` and `totalSupply()` on an interval and inserts
+`share_price_snapshots`. API responses use the latest snapshot and label the
+valuation with `valuationBlock` and `valuationTime`.
 
 ## Quickstart
 
@@ -28,59 +71,75 @@ npm start
 
 ## Environment
 
-| Variable | Purpose | Default | Production note |
+| Variable | Purpose | Default | Notes |
 | --- | --- | --- | --- |
-| `BASE_CHAIN_ID` | Base chain guard. | `8453` | Must stay `8453`. |
-| `BASE_RPC_URL` | Primary Base HTTP(S) RPC used for heads and log backfill. | `https://base-rpc.publicnode.com` | Use a reliable Base RPC, preferably one with historical archive access for the initial backfill. |
-| `BASE_CONTRACT_ADDRESS` | Morpho Vault contract to index. | `0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d` | Production stays fixed at this verified contract; override only for local testing. |
-| `DATABASE_PATH` | SQLite file path. | `./data/ethra-harbor-indexer.sqlite` | Put this on persistent storage. |
-| `START_BLOCK` | First cursor value when the cursor row is created. | `0` | Cursor semantics are `last_scanned_block`: use `48578254` for deployment-inclusive history or `48678602` for deposit-only catch-up. To index starting at block `N`, set `START_BLOCK=N-1`. |
-| `CONFIRMATIONS` | Blocks to wait before scanning. | `2` | Keep a small nonzero buffer on Base. |
-| `CHUNK_SIZE` | Logs per crawl window. | `1000` | Lower it for smoke tests or constrained RPCs. |
-| `BASE_BLOCK_TIME_MS` | Configured Base block-time estimate. | `2000` | Currently loaded from config; keep it at the expected Base cadence value. |
-| `FAST_POLL_MS` | Delay when the crawler still has more work. | `2000` | Keep short for catch-up runs. |
-| `SLOW_POLL_MS` | Delay when the crawler is caught up. | `50000` | Use a longer idle delay for steady-state runs. |
-| `CRAWL_MODE` | Scheduler mode: `auto`, `fast`, or `slow`. | `auto` | `auto` is the normal production choice. |
-| `RECONCILE_RPC_URLS` | Comma-separated fallback HTTP(S) RPC URLs. | empty | Leave blank if you only want the primary RPC, or add archive fallbacks after it. |
-| `LOG_LEVEL` | Console log level. | `info` | Use `info` in production, `debug` only during local troubleshooting. |
+| `BASE_CHAIN_ID` | Base chain guard. | `8453` | Must remain `8453`. |
+| `BASE_RPC_URL` | Primary Base HTTP(S) RPC. | `https://base-rpc.publicnode.com` | Used first for heads, logs, and snapshot reads. |
+| `BASE_CONTRACT_ADDRESS` | Vault contract to index. | `0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d` | Fixed production target. |
+| `DATABASE_PATH` | SQLite file path. | `./data/ethra-harbor-indexer.sqlite` | Persist this path between runs. |
+| `START_BLOCK` | Initial cursor block for a fresh DB. | `48578255` | Only used when the cursor row is first created. |
+| `CONFIRMATIONS` | Confirmation buffer before crawl. | `15` | Reorg posture is confirmation-buffer-only in v1. |
+| `SNAPSHOT_INTERVAL_MS` | Share-price snapshot cadence. | `60000` | Snapshotter retries on the same interval after errors. |
+| `API_ENABLED` | Enable the read-only HTTP API. | `true` | Any value other than `false` enables it. |
+| `API_PORT` | HTTP API listen port. | `8080` | Must be `1`-`65535`. |
+| `CHUNK_SIZE` | Maximum block span per crawl window. | `1000` | Smaller values help smoke tests and weaker RPCs. |
+| `BASE_BLOCK_TIME_MS` | Base block time estimate. | `2000` | Configured value used by the backend. |
+| `FAST_POLL_MS` | Poll delay while catching up. | `2000` | Applies in `auto`/`fast` modes. |
+| `SLOW_POLL_MS` | Poll delay at the tip. | `50000` | Applies in `auto`/`slow` modes. |
+| `CRAWL_MODE` | Scheduler mode. | `auto` | Allowed values: `auto`, `fast`, `slow`. |
+| `RECONCILE_RPC_URLS` | Ordered fallback HTTP(S) RPC URLs. | empty | Appended after `BASE_RPC_URL`. |
+| `LOG_LEVEL` | Structured log verbosity. | `info` | Allowed values: `debug`, `info`, `warn`, `error`. |
 
-The crawler always uses the primary `BASE_RPC_URL` first. If `RECONCILE_RPC_URLS` is set, its trimmed HTTP(S) entries are appended in order and used as ordered fallbacks for provider requests.
+The provider always tries `BASE_RPC_URL` first. If `RECONCILE_RPC_URLS` is set,
+the trimmed entries are appended in order and used as explicit fallbacks for
+`getBlockNumber`, `getLogs`, and snapshot reads.
 
-## Cursor And Reset
+## API
 
-The cursor is stored in SQLite in `indexer_state` under the ID `base:deposit:0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d`.
+The API is read-only and serves JSON over built-in `node:http`.
 
-`START_BLOCK` only matters when that cursor row is created. If the database already has a cursor, changing the env var will not move it.
+- `GET /health`
+  - Returns `{ status, cursorBlock, safeHeadKnown }`
+- `GET /vault`
+  - Returns vault totals, latest snapshot valuation, scaled share price, and
+    cumulative performance-fee totals
+- `GET /accounts/:address`
+  - Returns the five per-address metrics for a checksum-valid wallet address
 
-The crawler starts scanning at `last_scanned_block + 1`. To begin indexing from block `N`, set `START_BLOCK=N-1`.
+Unknown routes return `404`. Invalid account addresses return `400`.
 
-To inspect or safely override the cursor:
+## Cursor, Replay, And Dev-Stage Reset
 
-1. Stop the process.
-2. Back up the SQLite file.
-3. Inspect the current row.
-4. Update the cursor to the new block, or delete the row if you want the app to recreate it on the next start.
+The crawler cursor lives in `indexer_state` under the vault-specific id:
+
+`base:vault:0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d`
+
+The crawler starts from `last_scanned_block + 1`. `START_BLOCK` only matters
+when the database has no existing cursor row.
+
+This project is still in the dev-stage reset window. When schema/state changes
+break compatibility, delete the SQLite file and restart the service to re-crawl
+from `START_BLOCK`.
+
+```bash
+rm ./data/ethra-harbor-indexer.sqlite
+npm run dev
+```
+
+You can inspect the current cursor first:
 
 ```bash
 sqlite3 ./data/ethra-harbor-indexer.sqlite "select last_scanned_block from indexer_state;"
-sqlite3 ./data/ethra-harbor-indexer.sqlite "update indexer_state set last_scanned_block = 48578254 where id = 'base:deposit:0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d';"
 ```
 
-To restart from a clean slate, remove the database file after backing it up.
+## Operational Notes
 
-## Inspecting Data
-
-Use `sqlite3` to inspect the stored deposits and crawl state:
-
-```bash
-sqlite3 ./data/ethra-harbor-indexer.sqlite "select last_scanned_block from indexer_state;"
-sqlite3 ./data/ethra-harbor-indexer.sqlite "select count(*) from deposit_events;"
-sqlite3 ./data/ethra-harbor-indexer.sqlite "select block_number, tx_hash, sender, on_behalf, assets, shares from deposit_events order by block_number desc limit 5;"
-```
-
-## Extending The Indexer
-
-This crawler currently filters only the Morpho Vault `Deposit` event. If a future event is added, give it its own parser and repository tests before adding it to the crawler filter.
+- Chunk application is atomic: raw event inserts, ledger updates, vault-state
+  updates, and cursor advancement commit in one SQLite transaction.
+- Raw event tables keep `block_hash` for future rollback support, but v1 reorg
+  posture is the confirmation buffer only.
+- Wallet address is the only identity. There is no user-profile or multi-wallet
+  aggregation layer in this service.
 
 ## Scripts
 
