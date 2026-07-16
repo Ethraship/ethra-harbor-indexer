@@ -58,6 +58,11 @@ function readNumber(
 }
 
 export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
+  const chainId = readNumber(env, "BASE_CHAIN_ID");
+  if (chainId !== 8453) {
+    throw new Error(`BASE_CHAIN_ID must be 8453`);
+  }
+
   const crawlMode = (env.CRAWL_MODE ?? DEFAULTS.CRAWL_MODE) as CrawlMode;
   if (!CRAWL_MODES.has(crawlMode)) {
     throw new Error(`CRAWL_MODE must be one of auto, fast, or slow`);
@@ -77,28 +82,28 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       .filter((value) => value.length > 0),
   ];
 
+  let contractAddress: string;
   try {
-    return {
-      chainId: readNumber(env, "BASE_CHAIN_ID"),
-      rpcUrl,
-      reconcileRpcUrls,
-      contractAddress: getAddress(
-        env.BASE_CONTRACT_ADDRESS ?? DEFAULTS.BASE_CONTRACT_ADDRESS,
-      ),
-      databasePath: env.DATABASE_PATH ?? DEFAULTS.DATABASE_PATH,
-      startBlock: readNumber(env, "START_BLOCK", 0),
-      confirmations: readNumber(env, "CONFIRMATIONS", 0),
-      chunkSize: readNumber(env, "CHUNK_SIZE", 1),
-      blockTimeMs: readNumber(env, "BASE_BLOCK_TIME_MS", 1),
-      fastPollMs: readNumber(env, "FAST_POLL_MS", 250),
-      slowPollMs: readNumber(env, "SLOW_POLL_MS", 1000),
-      crawlMode,
-      logLevel,
-    };
-  } catch (error) {
-    if (error instanceof Error && env.BASE_CONTRACT_ADDRESS) {
-      throw new Error(`BASE_CONTRACT_ADDRESS is invalid`);
-    }
-    throw error;
+    contractAddress = getAddress(
+      env.BASE_CONTRACT_ADDRESS ?? DEFAULTS.BASE_CONTRACT_ADDRESS,
+    );
+  } catch {
+    throw new Error(`BASE_CONTRACT_ADDRESS is invalid`);
   }
+
+  return {
+    chainId,
+    rpcUrl,
+    reconcileRpcUrls,
+    contractAddress,
+    databasePath: env.DATABASE_PATH ?? DEFAULTS.DATABASE_PATH,
+    startBlock: readNumber(env, "START_BLOCK", 0),
+    confirmations: readNumber(env, "CONFIRMATIONS", 0),
+    chunkSize: readNumber(env, "CHUNK_SIZE", 1),
+    blockTimeMs: readNumber(env, "BASE_BLOCK_TIME_MS", 1),
+    fastPollMs: readNumber(env, "FAST_POLL_MS", 250),
+    slowPollMs: readNumber(env, "SLOW_POLL_MS", 1000),
+    crawlMode,
+    logLevel,
+  };
 }

@@ -12,7 +12,7 @@ function shouldLog(configuredLevel: LogLevel, messageLevel: LogLevel): boolean {
 }
 
 function emit(level: LogLevel, message: string, meta?: Record<string, unknown>): string {
-  return JSON.stringify(meta ? { level, message, ...meta } : { level, message });
+  return JSON.stringify(meta ? { ...meta, level, message } : { level, message });
 }
 
 export function createLogger(level: LogLevel) {

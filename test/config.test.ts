@@ -39,6 +39,24 @@ test("loadConfig rejects an invalid contract address", () => {
   );
 });
 
+test("loadConfig rejects BASE_CHAIN_ID values other than Base mainnet", () => {
+  assert.throws(
+    () => loadConfig({ BASE_CHAIN_ID: "1" }),
+    /BASE_CHAIN_ID must be 8453/,
+  );
+});
+
+test("loadConfig reports the actual invalid config field when address override is valid", () => {
+  assert.throws(
+    () =>
+      loadConfig({
+        BASE_CONTRACT_ADDRESS: "0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d",
+        FAST_POLL_MS: "249",
+      }),
+    /FAST_POLL_MS/,
+  );
+});
+
 test("loadConfig appends trimmed reconcile RPC URLs after the primary RPC URL", () => {
   const config = loadConfig({
     BASE_RPC_URL: "https://primary.example",
@@ -110,5 +128,33 @@ test("createLogger suppresses messages below the configured level and emits comp
     console.log = originalLog;
     console.warn = originalWarn;
     console.error = originalError;
+  }
+});
+
+test("createLogger preserves canonical level and message fields when metadata collides", () => {
+  const calls: string[] = [];
+  const originalWarn = console.warn;
+
+  console.warn = (value?: unknown) => {
+    calls.push(String(value));
+  };
+
+  try {
+    const logger = createLogger("debug");
+
+    logger.warn("real message", {
+      level: "error",
+      message: "fake message",
+      block: 123,
+    });
+
+    assert.equal(calls.length, 1);
+    assert.deepEqual(JSON.parse(calls[0]!), {
+      level: "warn",
+      message: "real message",
+      block: 123,
+    });
+  } finally {
+    console.warn = originalWarn;
   }
 });
