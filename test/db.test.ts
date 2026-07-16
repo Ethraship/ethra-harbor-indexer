@@ -93,11 +93,17 @@ test("openDatabase creates parent directories and runMigrations creates the expe
     assert.deepEqual(
       tables.map((row) => row.name),
       [
+        "account_positions",
+        "accrue_interest_events",
         "crawl_errors",
         "deposit_events",
         "indexer_state",
         "migrations",
+        "share_price_snapshots",
         "sqlite_sequence",
+        "transfer_events",
+        "vault_reward_state",
+        "withdraw_events",
       ],
     );
     assert.equal(journalMode, "wal");
@@ -107,6 +113,9 @@ test("openDatabase creates parent directories and runMigrations creates the expe
         .filter((name) => name.startsWith("idx_")),
       [
         "idx_deposit_events_block",
+        "idx_snapshots_block",
+        "idx_transfer_events_block",
+        "idx_withdraw_events_block",
       ],
     );
     assert.deepEqual(
