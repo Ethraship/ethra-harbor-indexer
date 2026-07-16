@@ -9,3 +9,7 @@
 - Area: vault event decoding guardrails
 - Changed: tightened `decodeVaultLog` to only accept logs from chain 8453 and the configured vault contract, and added test coverage for invalid addresses and checksum-normalized participant fields.
 - Why: the decoder should only accept logs from the single configured Morpho Vault target and should prove address normalization on decoded event arguments.
+
+- Area: vault DB reads and migration reset handling
+- Changed: keyed `readVaultState` to the active vault config and added a regression check that `runMigrations` throws the explicit reset error when only `001_initial_schema` is present.
+- Why: vault reward state must stay isolated per configured vault, and older local databases should fail fast instead of silently drifting onto the new schema.

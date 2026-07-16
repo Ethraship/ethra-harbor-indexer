@@ -113,21 +113,6 @@ function ensureVaultRewardStateRow(db: Database.Database, id: string): void {
   `).run(id);
 }
 
-function readVaultRewardStateId(db: Database.Database): string | null {
-  const rewardStateRow = db.prepare(
-    "SELECT id FROM vault_reward_state ORDER BY id LIMIT 1",
-  ).get() as { id: string } | undefined;
-  if (rewardStateRow) {
-    return rewardStateRow.id;
-  }
-
-  const cursorRow = db.prepare(
-    "SELECT id FROM indexer_state WHERE id LIKE 'base:vault:%' ORDER BY id LIMIT 1",
-  ).get() as { id: string } | undefined;
-
-  return cursorRow?.id ?? null;
-}
-
 export function getOrCreateVaultCursor(db: Database.Database, config: AppConfig): number {
   const id = vaultCursorId(config);
   const existingCursor = db.prepare(
@@ -159,12 +144,11 @@ export function getOrCreateVaultCursor(db: Database.Database, config: AppConfig)
   return config.startBlock;
 }
 
-export function readVaultState(db: Database.Database): VaultRewardState {
-  const id = readVaultRewardStateId(db);
-  if (!id) {
-    return { ...ZERO_VAULT_REWARD_STATE };
-  }
-
+export function readVaultState(
+  db: Database.Database,
+  config: AppConfig,
+): VaultRewardState {
+  const id = vaultCursorId(config);
   ensureVaultRewardStateRow(db, id);
 
   const row = db.prepare(`
