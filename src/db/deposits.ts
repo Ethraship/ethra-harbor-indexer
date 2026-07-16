@@ -10,12 +10,10 @@ export interface DepositEventRecord {
   txHash: string;
   txIndex: number;
   logIndex: number;
-  commitment: string;
-  leafIndex: number | null;
-  token: string;
-  amount: string;
-  encryptedClaim: string;
-  eventTimestamp: string;
+  sender: string;
+  onBehalf: string;
+  assets: string;
+  shares: string;
   rawLogJson: string;
   createdAt: number;
 }
@@ -78,15 +76,13 @@ export function saveDepositsAndCursor(
       tx_hash,
       tx_index,
       log_index,
-      commitment,
-      leaf_index,
-      token,
-      amount,
-      encrypted_claim,
-      event_timestamp,
+      sender,
+      on_behalf,
+      assets,
+      shares,
       raw_log_json,
       created_at
-    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
   `);
   const updateCursor = db.prepare(`
     UPDATE indexer_state
@@ -106,12 +102,10 @@ export function saveDepositsAndCursor(
         deposit.txHash,
         deposit.txIndex,
         deposit.logIndex,
-        deposit.commitment,
-        deposit.leafIndex,
-        deposit.token,
-        deposit.amount,
-        deposit.encryptedClaim,
-        deposit.eventTimestamp,
+        deposit.sender,
+        deposit.onBehalf,
+        deposit.assets,
+        deposit.shares,
         deposit.rawLogJson,
         deposit.createdAt,
       );

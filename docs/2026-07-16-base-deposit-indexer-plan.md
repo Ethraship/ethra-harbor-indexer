@@ -19,7 +19,8 @@
 - Slow and fast crawl modes are required.
 - Cursor advances only after every log in a chunk is processed inside a successful database transaction.
 - Re-runs must be idempotent using `(chain_id, tx_hash, log_index)` uniqueness.
-- Contract ABI and deployment start block must be verified from the deployed Base contract before implementation. If the explorer is unavailable, use the locally referenced pool event as the initial ABI and keep `START_BLOCK` configurable.
+- Contract ABI is the verified Morpho Vault V2-style Base contract event `Deposit(address indexed sender, address indexed onBehalf, uint256 assets, uint256 shares)`.
+- Keep `START_BLOCK` configurable; the first observed contract creation/internal transaction block is `48578255` and the first observed Deposit block is `48678603`.
 
 ---
 
@@ -45,22 +46,18 @@ Behavior to remove:
 - Secret orchestrator calls.
 - Secure file cursor storage; this indexer should keep cursor state in SQLite.
 
-## Deposit Event Assumption
+## Deposit Event
 
-The local payment client references this pool-style event:
+The deployed Base contract is verified as a Morpho Vault V2-style contract. Index this exact event:
 
 ```ts
 event Deposit(
-  uint256 indexed commitment,
-  uint32 leafIndex,
-  address indexed token,
-  uint256 amount,
-  bytes encryptedClaim,
-  uint256 timestamp
+  address indexed sender,
+  address indexed onBehalf,
+  uint256 assets,
+  uint256 shares
 )
 ```
-
-Implementation should verify this against the deployed contract at the Base address before writing the ABI file. If the deployed contract instead uses `Deposited(bytes32 indexed commitment,address indexed token,uint256 amount,bytes encryptedClaim,uint256 timestamp)`, implement that exact event name/signature instead and keep the same database fields where possible.
 
 ## Approach Options
 
@@ -140,7 +137,7 @@ RECONCILE_RPC_URLS=
 LOG_LEVEL=info
 ```
 
-`START_BLOCK=0` is a safe default but inefficient. Before production use, set it to the deployment block or first deposit block for the Base contract.
+`START_BLOCK=0` is a safe default but inefficient. Before production use, set it near the verified deployment block `48578255` or first observed deposit block `48678603`.
 
 ## Database Design
 
@@ -172,20 +169,16 @@ CREATE TABLE IF NOT EXISTS deposit_events (
   tx_hash TEXT NOT NULL,
   tx_index INTEGER NOT NULL,
   log_index INTEGER NOT NULL,
-  commitment TEXT NOT NULL,
-  leaf_index INTEGER,
-  token TEXT NOT NULL,
-  amount TEXT NOT NULL,
-  encrypted_claim TEXT NOT NULL,
-  event_timestamp TEXT NOT NULL,
+  sender TEXT NOT NULL,
+  on_behalf TEXT NOT NULL,
+  assets TEXT NOT NULL,
+  shares TEXT NOT NULL,
   raw_log_json TEXT NOT NULL,
   created_at INTEGER NOT NULL,
   UNIQUE(chain_id, tx_hash, log_index)
 );
 
 CREATE INDEX IF NOT EXISTS idx_deposit_events_block ON deposit_events(block_number);
-CREATE INDEX IF NOT EXISTS idx_deposit_events_commitment ON deposit_events(commitment);
-CREATE INDEX IF NOT EXISTS idx_deposit_events_token ON deposit_events(token);
 
 CREATE TABLE IF NOT EXISTS crawl_errors (
   id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -210,7 +203,7 @@ Cursor row:
 - Create: `src/index.ts` for bootstrap and graceful shutdown.
 - Create: `src/config.ts` for env parsing and validation.
 - Create: `src/logger.ts` for compact structured logs.
-- Create: `src/abi/privacyPool.ts` for the verified minimal ABI.
+- Create: `src/abi/morphoVault.ts` for the verified minimal ABI.
 - Create: `src/db/index.ts` for database lifecycle and migrations.
 - Create: `src/db/deposits.ts` for prepared statements that upsert deposit events and cursor state.
 - Create: `src/provider/baseProvider.ts` for the main HTTP provider and fallback `getLogs` behavior.
@@ -279,17 +272,18 @@ Steps:
 
 Files:
 
-- Create: `src/abi/privacyPool.ts`
+- Create: `src/abi/morphoVault.ts`
 - Create: `src/indexer/depositParser.ts`
 - Test: `test/depositParser.test.ts`
 
 Steps:
 
-- [ ] Verify the deployed Base contract ABI, then define the minimal ABI for the exact deposit event.
+- [ ] Define the minimal ABI for the verified `Deposit(address indexed sender, address indexed onBehalf, uint256 assets, uint256 shares)` event.
 - [ ] Implement `parseDepositLog(log, iface, config)` returning normalized strings for bigint values.
-- [ ] Store `commitment` as a hex string when the ABI returns a uint256.
-- [ ] Store `amount` and `event_timestamp` as decimal strings.
-- [ ] Store `encrypted_claim` as a hex string.
+- [ ] Normalize `sender`, `onBehalf`, and `contractAddress` with `ethers.getAddress`.
+- [ ] Store `assets` and `shares` as decimal strings.
+- [ ] Use `log.transactionIndex` and `log.index` for `txIndex` and `logIndex`.
+- [ ] Serialize the raw log with bigint-safe JSON stringification.
 - [ ] Add a fixture log generated with `ethers.Interface.encodeEventLog` and assert parsed fields exactly.
 
 ### Task 5: Provider And Block Ranges
@@ -359,14 +353,12 @@ Manual smoke test:
 ```bash
 sqlite3 ./data/ethra-harbor-indexer.sqlite "select last_scanned_block from indexer_state;"
 sqlite3 ./data/ethra-harbor-indexer.sqlite "select count(*) from deposit_events;"
-sqlite3 ./data/ethra-harbor-indexer.sqlite "select block_number, tx_hash, commitment, leaf_index, token, amount from deposit_events order by block_number desc limit 5;"
+sqlite3 ./data/ethra-harbor-indexer.sqlite "select block_number, tx_hash, sender, on_behalf, assets, shares from deposit_events order by block_number desc limit 5;"
 ```
 
 Use a small test window first by setting `START_BLOCK` near the contract deployment block and `CHUNK_SIZE=100`.
 
 ## Open Implementation Checks
 
-- Confirm the deployed contract ABI/event signature from Basescan or another reliable Base explorer before creating `src/abi/privacyPool.ts`.
-- Confirm the contract deployment block or earliest deposit block and set `START_BLOCK` in `.env.example` if it is stable.
+- Confirm whether production should default `START_BLOCK` closer to deployment block `48578255` or first observed deposit block `48678603`.
 - Decide whether production should use a paid/archive Base RPC for historical `getLogs` backfill. The code should support fallback URLs either way.
-

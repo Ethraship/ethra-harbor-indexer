@@ -28,20 +28,16 @@ const INITIAL_MIGRATION = {
       tx_hash TEXT NOT NULL,
       tx_index INTEGER NOT NULL,
       log_index INTEGER NOT NULL,
-      commitment TEXT NOT NULL,
-      leaf_index INTEGER,
-      token TEXT NOT NULL,
-      amount TEXT NOT NULL,
-      encrypted_claim TEXT NOT NULL,
-      event_timestamp TEXT NOT NULL,
+      sender TEXT NOT NULL,
+      on_behalf TEXT NOT NULL,
+      assets TEXT NOT NULL,
+      shares TEXT NOT NULL,
       raw_log_json TEXT NOT NULL,
       created_at INTEGER NOT NULL,
       UNIQUE(chain_id, tx_hash, log_index)
     );
 
     CREATE INDEX IF NOT EXISTS idx_deposit_events_block ON deposit_events(block_number);
-    CREATE INDEX IF NOT EXISTS idx_deposit_events_commitment ON deposit_events(commitment);
-    CREATE INDEX IF NOT EXISTS idx_deposit_events_token ON deposit_events(token);
 
     CREATE TABLE IF NOT EXISTS crawl_errors (
       id INTEGER PRIMARY KEY AUTOINCREMENT,

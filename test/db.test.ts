@@ -47,12 +47,10 @@ function createDeposit(overrides: Partial<DepositEventRecord> = {}): DepositEven
     txHash: "0xtx-1",
     txIndex: 0,
     logIndex: 1,
-    commitment: "0xcommitment-1",
-    leafIndex: 9,
-    token: "0xtoken-1",
-    amount: "1000000000000000000",
-    encryptedClaim: "ciphertext-1",
-    eventTimestamp: "1712345678",
+    sender: "0x1111111111111111111111111111111111111111",
+    onBehalf: "0x2222222222222222222222222222222222222222",
+    assets: "1000000000000000000",
+    shares: "950000000000000000",
     rawLogJson: JSON.stringify({ logIndex: 1 }),
     createdAt: 1712345678,
     ...overrides,
@@ -87,6 +85,9 @@ test("openDatabase creates parent directories and runMigrations creates the expe
     const indexes = db.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name",
     ).all() as Array<{ name: string }>;
+    const depositColumns = db.prepare(
+      "PRAGMA table_info(deposit_events)",
+    ).all() as Array<{ name: string }>;
     const journalMode = db.pragma("journal_mode", { simple: true });
 
     assert.deepEqual(
@@ -106,8 +107,25 @@ test("openDatabase creates parent directories and runMigrations creates the expe
         .filter((name) => name.startsWith("idx_")),
       [
         "idx_deposit_events_block",
-        "idx_deposit_events_commitment",
-        "idx_deposit_events_token",
+      ],
+    );
+    assert.deepEqual(
+      depositColumns.map((column) => column.name),
+      [
+        "id",
+        "chain_id",
+        "contract_address",
+        "block_number",
+        "block_hash",
+        "tx_hash",
+        "tx_index",
+        "log_index",
+        "sender",
+        "on_behalf",
+        "assets",
+        "shares",
+        "raw_log_json",
+        "created_at",
       ],
     );
   } finally {
@@ -159,13 +177,15 @@ test("saveDepositsAndCursor ignores duplicate deposits and advances the cursor o
     saveDepositsAndCursor(db, config, [duplicateDeposit, duplicateDeposit], 250);
 
     const depositRows = db.prepare(
-      "SELECT chain_id, tx_hash, log_index, commitment, leaf_index FROM deposit_events",
+      "SELECT chain_id, tx_hash, log_index, sender, on_behalf, assets, shares FROM deposit_events",
     ).all() as Array<{
       chain_id: number;
       tx_hash: string;
       log_index: number;
-      commitment: string;
-      leaf_index: number | null;
+      sender: string;
+      on_behalf: string;
+      assets: string;
+      shares: string;
     }>;
     const cursorRow = db.prepare(
       "SELECT last_scanned_block FROM indexer_state WHERE id = ?",
@@ -176,8 +196,10 @@ test("saveDepositsAndCursor ignores duplicate deposits and advances the cursor o
       chain_id: duplicateDeposit.chainId,
       tx_hash: duplicateDeposit.txHash,
       log_index: duplicateDeposit.logIndex,
-      commitment: duplicateDeposit.commitment,
-      leaf_index: duplicateDeposit.leafIndex,
+      sender: duplicateDeposit.sender,
+      on_behalf: duplicateDeposit.onBehalf,
+      assets: duplicateDeposit.assets,
+      shares: duplicateDeposit.shares,
     });
     assert.equal(cursorRow.last_scanned_block, 250);
   } finally {
