@@ -2,6 +2,10 @@
 
 ## 2026-07-16
 
+- Area: read-only HTTP API
+- Changed: added a built-in `node:http` read API for `/health`, `/vault`, and `/accounts/:address`, plus query helpers that perform read-time fee settlement without persistence and return null valuation fields when no snapshot exists yet.
+- Why: Task 7 exposes the indexed vault/account metrics over JSON without introducing bootstrap wiring or per-request RPC calls.
+
 - Area: share-price snapshotting
 - Changed: added a periodic share-price snapshotter, a vault-total read helper on the Base RPC client, and share valuation math that floors `shares * totalAssets / totalSupply` and returns zero when supply is empty.
 - Why: the indexer now needs replayable vault share-price snapshots for USDC valuation and vault-level metrics.
