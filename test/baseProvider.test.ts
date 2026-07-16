@@ -82,6 +82,61 @@ test("createBaseProviderClient gets the head from the first configured provider"
   }
 });
 
+test("createBaseProviderClient falls back across providers for block number and returns the first success", async () => {
+  const original = ethers.JsonRpcProvider;
+  const calls: string[] = [];
+
+  class FakeProvider {
+    readonly url: string;
+
+    constructor(url: string) {
+      this.url = url;
+    }
+
+    async getBlockNumber(): Promise<number> {
+      calls.push(this.url);
+
+      if (this.url === "https://primary.example") {
+        throw new Error("primary failed");
+      }
+
+      return 654321;
+    }
+
+    async getLogs(): Promise<ethers.Log[]> {
+      throw new Error("not needed");
+    }
+  }
+
+  Object.defineProperty(ethers, "JsonRpcProvider", {
+    configurable: true,
+    value: FakeProvider,
+  });
+
+  try {
+    const client = createBaseProviderClient(
+      createConfig({
+        reconcileRpcUrls: [
+          "https://primary.example",
+          "https://secondary.example",
+          "https://tertiary.example",
+        ],
+      }),
+    );
+
+    assert.equal(await client.getBlockNumber(), 654321);
+    assert.deepEqual(calls, [
+      "https://primary.example",
+      "https://secondary.example",
+    ]);
+  } finally {
+    Object.defineProperty(ethers, "JsonRpcProvider", {
+      configurable: true,
+      value: original,
+    });
+  }
+});
+
 test("createBaseProviderClient falls back across providers for logs and returns the first success", async () => {
   const original = ethers.JsonRpcProvider;
   const calls: string[] = [];

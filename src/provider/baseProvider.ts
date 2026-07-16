@@ -22,8 +22,18 @@ export function createBaseProviderClient(config: AppConfig): BaseProviderClient 
   );
 
   return {
-    getBlockNumber() {
-      return providers[0].getBlockNumber();
+    async getBlockNumber() {
+      let lastError: unknown;
+
+      for (const provider of providers) {
+        try {
+          return await provider.getBlockNumber();
+        } catch (error) {
+          lastError = error;
+        }
+      }
+
+      throw lastError;
     },
     async getLogs(filter) {
       let lastError: unknown;
