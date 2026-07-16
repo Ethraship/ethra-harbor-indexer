@@ -18,7 +18,7 @@ export interface ParsedDepositEvent {
   createdAt: number;
 }
 
-function stringifyRawLog(log: Log): string {
+export function stringifyRawLog(log: Log): string {
   return JSON.stringify(log, (_key, value) =>
     typeof value === "bigint" ? value.toString() : value,
   );
