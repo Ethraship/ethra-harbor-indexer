@@ -17,7 +17,7 @@ import { createApiServer } from "../src/api/server";
 
 function createConfig(overrides: Record<string, string> = {}) {
   return loadConfig({
-    START_BLOCK: "48578255",
+    START_BLOCK: "48578254",
     BASE_CONTRACT_ADDRESS: "0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d",
     ...overrides,
   });
@@ -55,7 +55,7 @@ test("api serves account, vault, and health metrics from indexed state", async (
   runMigrations(db);
 
   const cursorBlock = getOrCreateVaultCursor(db, config);
-  assert.equal(cursorBlock, 48578255);
+  assert.equal(cursorBlock, 48578254);
 
   upsertVaultState(db, config, {
     globalIndexRaw: (SCALE / 10n).toString(),
@@ -98,7 +98,7 @@ test("api serves account, vault, and health metrics from indexed state", async (
 
   assert.deepEqual(await healthRes.json(), {
     status: "ok",
-    cursorBlock: 48578255,
+    cursorBlock: 48578254,
     safeHeadKnown: false,
   });
 

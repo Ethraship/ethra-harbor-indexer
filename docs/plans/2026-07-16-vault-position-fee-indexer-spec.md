@@ -202,11 +202,12 @@ We label metric 4 as analytics and always report the valuation block/time.
 - **Crawl model (unchanged trust):** `safeHead = head − confirmations`,
   `fromBlock = cursor + 1`, `toBlock = min(safeHead, fromBlock + chunk − 1)`.
   Downtime is recovered by resuming from the persisted cursor.
-- **Atomic chunk apply:** for each chunk, in a single SQLite transaction: insert
-  raw events (`INSERT OR IGNORE` on `(chain_id, tx_hash, log_index)`) → apply
-  accumulator/ledger updates for the merged, sorted logs → advance cursor. The
-  accumulator is **not** idempotent, so exactly-once application is guaranteed
-  by this atomicity: a failed chunk commits nothing and the same range retries.
+- **Atomic chunk apply:** for each chunk, in a single SQLite transaction:
+  reject duplicate or already-persisted `(chain_id, tx_hash, log_index)` raw-log
+  identities → insert raw events → apply accumulator/ledger updates for the
+  merged, sorted logs → advance cursor. The accumulator is **not** idempotent,
+  so exactly-once application is guaranteed by this validation plus atomicity:
+  a failed chunk commits nothing and the same range retries.
 - **Reorg safety (v1) = confirmation buffer only.** Default `CONFIRMATIONS` is
   raised (recommend `15`, configurable) so only sufficiently final blocks are
   processed. `block_hash` is stored on every raw event. Full block-hash rollback

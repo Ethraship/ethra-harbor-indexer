@@ -12,7 +12,7 @@
 
 - `docs/overview.md` is now the product source of truth required by `AGENTS.md`; implementation should keep it aligned as the feature lands.
 - `Task 3` owns schema and pure repository primitives. `Task 5` owns `applyChunk`, because it combines persistence with the ledger accumulator.
-- The crawler retry/idempotency test must simulate rollback after a failed transaction. Replaying a chunk that already committed is not supported because the accumulator is not idempotent.
+- The crawler retry/idempotency test must simulate rollback after a failed transaction. Replaying a chunk that already committed must be rejected before ledger mutation because the accumulator is not idempotent.
 - Dev-stage schema reset is explicit: local SQLite files using the old schema must be deleted before running this feature. The migration only creates the new schema for empty/reset databases; it does not silently migrate old local data.
 - `/vault` share price is returned as an integer string, not a floating point value: `sharePriceScaledRaw = total_assets_raw * 10^18 / total_supply_raw` and `sharePriceScale = "1000000000000000000"`.
 - `START_BLOCK` defaults to `48578254` so the first scanned block is deployment block `48578255`.
@@ -26,7 +26,7 @@
 - All blockchain integers stored and returned as decimal **strings**; never floats.
 - Index scale factor is `1e36` (`SCALE = 10n ** 36n`).
 - Events processed in strict `(block_number, transaction_index, log_index)` order.
-- Per-chunk write is one SQLite transaction: raw inserts (`INSERT OR IGNORE`) + derived updates + cursor advance. A failed chunk commits nothing and retries the same range.
+- Per-chunk write is one SQLite transaction: raw-log duplicate/replay validation + raw inserts + derived updates + cursor advance. A failed chunk commits nothing and retries the same range.
 - Idempotency key on every raw event: `(chain_id, tx_hash, log_index)`.
 - Dev-stage reset: the schema change nukes existing local databases; no backward migration.
 - Reorg safety v1 = confirmation buffer only (default `CONFIRMATIONS=15`); `block_hash` stored on raw events; full hash-rollback deferred.
@@ -95,7 +95,7 @@ test("rejects invalid api port", () => {
 
 ```ts
 export type DecodedVaultEvent =
-  | { kind: "deposit"; onBehalf: string; assets: string; shares: string; base: BaseLogFields }
+  | { kind: "deposit"; sender: string; onBehalf: string; assets: string; shares: string; base: BaseLogFields }
   | { kind: "withdraw"; sender: string; receiver: string; onBehalf: string; assets: string; shares: string; base: BaseLogFields }
   | { kind: "transfer"; from: string; to: string; shares: string; base: BaseLogFields }
   | { kind: "accrue"; previousTotalAssets: string; newTotalAssets: string; performanceFeeShares: string; managementFeeShares: string; base: BaseLogFields };
@@ -323,7 +323,7 @@ assert.equal(s.accounts.get(B)!.earnedPerfFeeSharesRaw, 750n);
 
 **Interfaces:**
 - Consumes: `decodeVaultLog` (Task 2), ledger reducer (Task 4), repos (Task 3), `calculateRange` (unchanged).
-- Produces: `applyChunk(db, config, { decodedEvents, toBlock })` which, in one transaction: (a) loads current `VaultRewardState` + touched `AccountPosition`s into a `LedgerState`, (b) replays the chunk's decoded events through the ledger in sorted order, (c) inserts raw event rows per kind (`INSERT OR IGNORE`), (d) upserts changed positions and the vault state, (e) advances the cursor.
+- Produces: `applyChunk(db, config, { decodedEvents, toBlock })` which, in one transaction: (a) validates no duplicate raw-log identities are present in the chunk or already persisted, (b) loads current `VaultRewardState` + touched `AccountPosition`s into a `LedgerState`, (c) replays the chunk's decoded events through the ledger in sorted order, (d) inserts raw event rows per kind, (e) upserts changed positions and the vault state, (f) advances the cursor.
 
 - [ ] **Step 1: Write failing crawler test** with a mocked provider returning a two-chunk sequence containing all four event kinds (mint transfer, deposit, accrue with perf fee, fee-mint transfer, withdraw, burn transfer). Assert: fetch uses a 4-topic OR filter; events applied in `(block, txIndex, logIndex)` order; positions/vault-state match hand-computed expectations; a failed chunk rolls back both raw inserts and derived state so the retry applies exactly once; `auto` mode switches fast→slow at the tip.
 
