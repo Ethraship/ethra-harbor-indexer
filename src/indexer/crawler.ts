@@ -188,6 +188,11 @@ export class DepositCrawler {
 
     this.timer = setTimeout(async () => {
       this.timer = null;
+
+      if (this.stopped) {
+        return;
+      }
+
       const runLoop = this.runLoop();
       this.activeRunLoop = runLoop;
 

@@ -466,7 +466,7 @@ test("start schedules fast then slow in auto mode and stop clears the pending ti
     crawler.start();
     await queued.shift()?.fn();
     await queued.shift()?.fn();
-    crawler.stop();
+    await crawler.stop();
 
     assert.deepEqual(scheduledDelays, [0, 2000, 50000]);
     assert.deepEqual(clearedHandles, [{ id: 3 }]);
@@ -540,6 +540,59 @@ test("stop waits for the active run loop to finish before resolving", async () =
 
     assert.equal(tickFinished, true);
     assert.equal(stopResolved, true);
+  } finally {
+    global.setTimeout = originalSetTimeout;
+    global.clearTimeout = originalClearTimeout;
+    closeDatabase(db);
+  }
+});
+
+test("stop prevents a queued timeout callback from starting a tick after shutdown", async () => {
+  const db = openDatabase(":memory:");
+  const config = createConfig();
+  const iface = new Interface(MORPHO_VAULT_ABI);
+  const providerCalls: Array<{ type: "head" }> = [];
+  const provider = createProvider({
+    heads: [105],
+    calls: providerCalls,
+  });
+  const queued: Array<() => void | Promise<void>> = [];
+  const originalSetTimeout = global.setTimeout;
+  const originalClearTimeout = global.clearTimeout;
+  let tickStarts = 0;
+
+  global.setTimeout = ((fn: () => void | Promise<void>) => {
+    queued.push(fn);
+    return { id: queued.length } as ReturnType<typeof setTimeout>;
+  }) as typeof setTimeout;
+  global.clearTimeout = (() => {}) as typeof clearTimeout;
+
+  try {
+    runMigrations(db);
+
+    const crawler = new DepositCrawler({
+      config,
+      db,
+      provider,
+      iface,
+      logger: createLogger(),
+    });
+    const originalTick = crawler.tick.bind(crawler);
+
+    crawler.tick = async () => {
+      tickStarts += 1;
+      return originalTick();
+    };
+
+    crawler.start();
+
+    assert.equal(queued.length, 1);
+
+    await crawler.stop();
+    await queued.shift()?.();
+
+    assert.equal(tickStarts, 0);
+    assert.deepEqual(providerCalls, []);
   } finally {
     global.setTimeout = originalSetTimeout;
     global.clearTimeout = originalClearTimeout;

@@ -319,7 +319,7 @@ Steps:
 - [ ] Decode logs and persist events plus cursor in one transaction.
 - [ ] Schedule next loop using `CRAWL_MODE`.
 - [ ] Capture chunk failures in `crawl_errors` and retry the same cursor on the next loop.
-- [ ] Add graceful shutdown for `SIGINT` and `SIGTERM` that clears the pending timer and closes SQLite.
+- [ ] Add graceful shutdown for `SIGINT` and `SIGTERM` that awaits `stop(): Promise<void>`, clears the pending timer, and closes SQLite after any in-flight tick finishes.
 - [ ] Add a mocked-provider crawler test that processes two chunks, switches from fast to slow in `auto` mode, and does not double-insert repeated logs.
 
 ### Task 7: Operational Documentation
