@@ -3,12 +3,12 @@ import type Database from "better-sqlite3";
 
 import type { AppConfig } from "../config";
 import {
-  getOrCreateCursor,
+  applyChunk,
+  getOrCreateVaultCursor,
   recordCrawlError,
-  saveDepositsAndCursor,
 } from "../db";
 import { calculateRange } from "./blockRange";
-import { parseDepositLog } from "./depositParser";
+import { decodeVaultLog, type DecodedVaultEvent } from "./eventDecoder";
 import type { BaseProviderClient } from "../provider/baseProvider";
 
 export interface CrawlerDependencies {
@@ -32,11 +32,11 @@ export interface CrawlerTickResult {
   hasMore: boolean;
 }
 
-function compareLogs(left: ethers.Log, right: ethers.Log): number {
+function compareEvents(left: DecodedVaultEvent, right: DecodedVaultEvent): number {
   return (
-    left.blockNumber - right.blockNumber ||
-    left.transactionIndex - right.transactionIndex ||
-    left.index - right.index
+    left.base.blockNumber - right.base.blockNumber ||
+    left.base.txIndex - right.base.txIndex ||
+    left.base.logIndex - right.base.logIndex
   );
 }
 
@@ -60,7 +60,7 @@ export function nextDelayMs(config: AppConfig, hasMore: boolean): number {
   }
 }
 
-export class DepositCrawler {
+export class VaultCrawler {
   private readonly config: AppConfig;
   private readonly db: Database.Database;
   private readonly provider: BaseProviderClient;
@@ -79,7 +79,7 @@ export class DepositCrawler {
   }
 
   async tick(): Promise<CrawlerTickResult> {
-    const cursor = getOrCreateCursor(this.db, this.config);
+    const cursor = getOrCreateVaultCursor(this.db, this.config);
     const head = await this.provider.getBlockNumber();
     const range = calculateRange(
       cursor,
@@ -99,43 +99,50 @@ export class DepositCrawler {
     }
 
     try {
-      const eventFragment = this.iface.getEvent("Deposit");
-
-      if (!eventFragment) {
-        throw new Error("Deposit event missing from interface");
-      }
-
-      const topicHash = eventFragment.topicHash;
+      const depositFragment = this.iface.getEvent("Deposit");
+      const withdrawFragment = this.iface.getEvent("Withdraw");
+      const transferFragment = this.iface.getEvent("Transfer");
+      const accrueFragment = this.iface.getEvent("AccrueInterest");
+      const topics = [[
+        depositFragment.topicHash,
+        withdrawFragment.topicHash,
+        transferFragment.topicHash,
+        accrueFragment.topicHash,
+      ]];
       const logs = await this.provider.getLogs({
         address: this.config.contractAddress,
-        topics: [topicHash],
+        topics,
         fromBlock: range.fromBlock,
         toBlock: range.toBlock,
       });
-      const deposits = [...logs].sort(compareLogs).map((log) => {
-        const deposit = parseDepositLog(log, this.iface, this.config);
+      const decodedEvents = logs.map((log) => {
+        const decodedEvent = decodeVaultLog(log, this.iface, this.config);
 
-        if (!deposit) {
+        if (!decodedEvent) {
           throw new Error(
-            `encountered undecodable Deposit log for ${log.transactionHash}:${log.index} in chunk ${range.fromBlock}-${range.toBlock}`,
+            `encountered undecodable vault log for ${log.transactionHash}:${log.index} in chunk ${range.fromBlock}-${range.toBlock}`,
           );
         }
 
-        return deposit;
+        return decodedEvent;
       });
+      decodedEvents.sort(compareEvents);
 
-      saveDepositsAndCursor(this.db, this.config, deposits, range.toBlock);
+      applyChunk(this.db, this.config, {
+        decodedEvents,
+        toBlock: range.toBlock,
+      });
 
       this.logger.debug("crawler chunk processed", {
         fromBlock: range.fromBlock,
         toBlock: range.toBlock,
-        processedLogs: deposits.length,
+        processedLogs: decodedEvents.length,
         safeHead: range.safeHead,
         hasMore: range.hasMore,
       });
 
       return {
-        processedLogs: deposits.length,
+        processedLogs: decodedEvents.length,
         fromBlock: range.fromBlock,
         toBlock: range.toBlock,
         safeHead: range.safeHead,

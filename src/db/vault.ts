@@ -1,7 +1,18 @@
 import type Database from "better-sqlite3";
+import { getAddress } from "ethers";
 
 import type { AppConfig } from "../config";
 import { vaultCursorId } from "../config";
+import type { DecodedVaultEvent } from "../indexer/eventDecoder";
+import {
+  applyAccrue,
+  applyDeposit,
+  applyTransfer,
+  applyWithdraw,
+  type AccountLedger,
+  type LedgerState,
+  ZERO_ADDRESS,
+} from "../indexer/ledger";
 
 export interface VaultRewardState {
   globalIndexRaw: string;
@@ -79,6 +90,11 @@ export interface AccrueInterestEventRecord {
   createdAt: number;
 }
 
+export interface ApplyChunkInput {
+  decodedEvents: DecodedVaultEvent[];
+  toBlock: number;
+}
+
 const ZERO_VAULT_REWARD_STATE: VaultRewardState = {
   globalIndexRaw: "0",
   totalSupplyRaw: "0",
@@ -98,6 +114,127 @@ function zeroAccountPosition(address: string): AccountPosition {
     updatedBlockNumber: 0,
     updatedLogIndex: 0,
   };
+}
+
+function toLedgerAccount(position: AccountPosition): AccountLedger {
+  return {
+    balanceRaw: BigInt(position.balanceRaw),
+    rewardDebtRaw: BigInt(position.rewardDebtRaw),
+    earnedPerfFeeSharesRaw: BigInt(position.earnedPerfFeeSharesRaw),
+    lifetimeDepositedRaw: BigInt(position.lifetimeDepositedRaw),
+    lifetimeWithdrawnRaw: BigInt(position.lifetimeWithdrawnRaw),
+    touched: false,
+    updatedBlockNumber: position.updatedBlockNumber,
+    updatedLogIndex: position.updatedLogIndex,
+  };
+}
+
+function toAccountPosition(address: string, account: AccountLedger): AccountPosition {
+  return {
+    address,
+    balanceRaw: account.balanceRaw.toString(),
+    rewardDebtRaw: account.rewardDebtRaw.toString(),
+    earnedPerfFeeSharesRaw: account.earnedPerfFeeSharesRaw.toString(),
+    lifetimeDepositedRaw: account.lifetimeDepositedRaw.toString(),
+    lifetimeWithdrawnRaw: account.lifetimeWithdrawnRaw.toString(),
+    updatedBlockNumber: account.updatedBlockNumber,
+    updatedLogIndex: account.updatedLogIndex,
+  };
+}
+
+function insertDepositEvent(
+  db: Database.Database,
+  event: {
+    chainId: number;
+    contractAddress: string;
+    blockNumber: number;
+    blockHash: string;
+    txHash: string;
+    txIndex: number;
+    logIndex: number;
+    sender: string;
+    onBehalf: string;
+    assets: string;
+    shares: string;
+    rawLogJson: string;
+    createdAt: number;
+  },
+): void {
+  db.prepare(`
+    INSERT OR IGNORE INTO deposit_events (
+      chain_id,
+      contract_address,
+      block_number,
+      block_hash,
+      tx_hash,
+      tx_index,
+      log_index,
+      sender,
+      on_behalf,
+      assets,
+      shares,
+      raw_log_json,
+      created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    event.chainId,
+    event.contractAddress,
+    event.blockNumber,
+    event.blockHash,
+    event.txHash,
+    event.txIndex,
+    event.logIndex,
+    event.sender,
+    event.onBehalf,
+    event.assets,
+    event.shares,
+    event.rawLogJson,
+    event.createdAt,
+  );
+}
+
+function extractIndexedAddress(rawLogJson: string, topicIndex: number): string | null {
+  try {
+    const parsed = JSON.parse(rawLogJson) as { topics?: unknown };
+
+    if (!Array.isArray(parsed.topics)) {
+      return null;
+    }
+
+    const topic = parsed.topics[topicIndex];
+    if (typeof topic !== "string" || !topic.startsWith("0x") || topic.length !== 66) {
+      return null;
+    }
+
+    return getAddress(`0x${topic.slice(26)}`);
+  } catch {
+    return null;
+  }
+}
+
+function collectTouchedAddresses(decodedEvents: DecodedVaultEvent[]): string[] {
+  const addresses = new Set<string>();
+
+  for (const event of decodedEvents) {
+    switch (event.kind) {
+      case "deposit":
+      case "withdraw":
+        addresses.add(event.onBehalf);
+        break;
+      case "transfer":
+        if (event.from !== ZERO_ADDRESS) {
+          addresses.add(event.from);
+        }
+        if (event.to !== ZERO_ADDRESS) {
+          addresses.add(event.to);
+        }
+        break;
+      case "accrue":
+        break;
+    }
+  }
+
+  return [...addresses];
 }
 
 function ensureVaultRewardStateRow(db: Database.Database, id: string): void {
@@ -446,4 +583,165 @@ export function readLatestSnapshot(db: Database.Database): Snapshot | null {
     totalSupplyRaw: row.total_supply_raw,
     capturedAt: row.captured_at,
   };
+}
+
+export function applyChunk(
+  db: Database.Database,
+  config: AppConfig,
+  input: ApplyChunkInput,
+): void {
+  const updateCursor = db.prepare(`
+    UPDATE indexer_state
+    SET chain_id = ?, contract_address = ?, last_scanned_block = ?, updated_at = ?
+    WHERE id = ?
+  `);
+  const persistChunk = db.transaction((chunk: ApplyChunkInput) => {
+    getOrCreateVaultCursor(db, config);
+
+    const currentVaultState = readVaultState(db, config);
+    const accounts = new Map<string, AccountLedger>();
+
+    for (const address of collectTouchedAddresses(chunk.decodedEvents)) {
+      accounts.set(address, toLedgerAccount(readAccountPosition(db, address)));
+    }
+
+    const ledgerState: LedgerState = {
+      globalIndexRaw: BigInt(currentVaultState.globalIndexRaw),
+      totalSupplyRaw: BigInt(currentVaultState.totalSupplyRaw),
+      cumulativePerfFeeSharesRaw: BigInt(currentVaultState.cumulativePerfFeeSharesRaw),
+      cumulativeMgmtFeeSharesRaw: BigInt(currentVaultState.cumulativeMgmtFeeSharesRaw),
+      accounts,
+    };
+    let updatedBlockNumber = currentVaultState.updatedBlockNumber;
+
+    for (const event of chunk.decodedEvents) {
+      updatedBlockNumber = event.base.blockNumber;
+
+      switch (event.kind) {
+        case "deposit":
+          applyDeposit(ledgerState, {
+            onBehalf: event.onBehalf,
+            assets: BigInt(event.assets),
+            shares: BigInt(event.shares),
+            block: event.base.blockNumber,
+            logIndex: event.base.logIndex,
+          });
+          insertDepositEvent(db, {
+            chainId: event.base.chainId,
+            contractAddress: event.base.contractAddress,
+            blockNumber: event.base.blockNumber,
+            blockHash: event.base.blockHash,
+            txHash: event.base.txHash,
+            txIndex: event.base.txIndex,
+            logIndex: event.base.logIndex,
+            sender: extractIndexedAddress(event.base.rawLogJson, 1) ?? event.onBehalf,
+            onBehalf: event.onBehalf,
+            assets: event.assets,
+            shares: event.shares,
+            rawLogJson: event.base.rawLogJson,
+            createdAt: event.base.createdAt,
+          });
+          break;
+        case "withdraw":
+          applyWithdraw(ledgerState, {
+            onBehalf: event.onBehalf,
+            assets: BigInt(event.assets),
+            shares: BigInt(event.shares),
+            block: event.base.blockNumber,
+            logIndex: event.base.logIndex,
+          });
+          insertWithdrawEvent(db, {
+            chainId: event.base.chainId,
+            contractAddress: event.base.contractAddress,
+            blockNumber: event.base.blockNumber,
+            blockHash: event.base.blockHash,
+            txHash: event.base.txHash,
+            txIndex: event.base.txIndex,
+            logIndex: event.base.logIndex,
+            sender: event.sender,
+            receiver: event.receiver,
+            onBehalf: event.onBehalf,
+            assets: event.assets,
+            shares: event.shares,
+            rawLogJson: event.base.rawLogJson,
+            createdAt: event.base.createdAt,
+          });
+          break;
+        case "transfer":
+          applyTransfer(ledgerState, {
+            from: event.from,
+            to: event.to,
+            shares: BigInt(event.shares),
+            block: event.base.blockNumber,
+            logIndex: event.base.logIndex,
+          });
+          insertTransferEvent(db, {
+            chainId: event.base.chainId,
+            contractAddress: event.base.contractAddress,
+            blockNumber: event.base.blockNumber,
+            blockHash: event.base.blockHash,
+            txHash: event.base.txHash,
+            txIndex: event.base.txIndex,
+            logIndex: event.base.logIndex,
+            fromAddress: event.from,
+            toAddress: event.to,
+            shares: event.shares,
+            rawLogJson: event.base.rawLogJson,
+            createdAt: event.base.createdAt,
+          });
+          break;
+        case "accrue": {
+          const result = applyAccrue(ledgerState, {
+            performanceFeeShares: BigInt(event.performanceFeeShares),
+            managementFeeShares: BigInt(event.managementFeeShares),
+            block: event.base.blockNumber,
+            logIndex: event.base.logIndex,
+          });
+          insertAccrueInterestEvent(db, {
+            chainId: event.base.chainId,
+            contractAddress: event.base.contractAddress,
+            blockNumber: event.base.blockNumber,
+            blockHash: event.base.blockHash,
+            txHash: event.base.txHash,
+            txIndex: event.base.txIndex,
+            logIndex: event.base.logIndex,
+            previousTotalAssets: event.previousTotalAssets,
+            newTotalAssets: event.newTotalAssets,
+            performanceFeeShares: event.performanceFeeShares,
+            managementFeeShares: event.managementFeeShares,
+            totalSupplyBeforeRaw: result.totalSupplyBeforeRaw.toString(),
+            globalIndexAfterRaw: result.globalIndexAfterRaw.toString(),
+            rawLogJson: event.base.rawLogJson,
+            createdAt: event.base.createdAt,
+          });
+          break;
+        }
+      }
+    }
+
+    for (const [address, account] of ledgerState.accounts) {
+      if (!account.touched) {
+        continue;
+      }
+
+      upsertAccountPosition(db, toAccountPosition(address, account));
+    }
+
+    upsertVaultState(db, config, {
+      globalIndexRaw: ledgerState.globalIndexRaw.toString(),
+      totalSupplyRaw: ledgerState.totalSupplyRaw.toString(),
+      cumulativePerfFeeSharesRaw: ledgerState.cumulativePerfFeeSharesRaw.toString(),
+      cumulativeMgmtFeeSharesRaw: ledgerState.cumulativeMgmtFeeSharesRaw.toString(),
+      updatedBlockNumber,
+    });
+    updateCursor.run(
+      config.chainId,
+      config.contractAddress,
+      chunk.toBlock,
+      Date.now(),
+      vaultCursorId(config),
+    );
+  });
+
+  persistChunk(input);
 }

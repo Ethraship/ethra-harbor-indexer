@@ -1,29 +1,36 @@
 import assert from "node:assert/strict";
 import test from "node:test";
 
-import { Interface, type Log } from "ethers";
+import { Interface, getAddress, type Log } from "ethers";
 
-import type { AppConfig } from "../src/config";
+import { MORPHO_VAULT_ABI } from "../src/abi/morphoVault";
+import { vaultCursorId, type AppConfig } from "../src/config";
 import {
   closeDatabase,
-  cursorId,
-  getOrCreateCursor,
+  getOrCreateVaultCursor,
   openDatabase,
+  readAccountPosition,
+  readVaultState,
   runMigrations,
 } from "../src/db";
-import { MORPHO_VAULT_ABI } from "../src/abi/morphoVault";
+import { VaultCrawler, nextDelayMs } from "../src/indexer/crawler";
 import type { BaseProviderClient } from "../src/provider/baseProvider";
-import { DepositCrawler, nextDelayMs } from "../src/indexer/crawler";
+
+const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
+const SCALE = 10n ** 36n;
 
 function createConfig(overrides: Partial<AppConfig> = {}): AppConfig {
   return {
     chainId: 8453,
     rpcUrl: "https://base-rpc.publicnode.com",
     reconcileRpcUrls: ["https://base-rpc.publicnode.com"],
-    contractAddress: "0x9D2F57159ECA69265A9B9efAaA8Bc2B6B2df364d",
+    contractAddress: getAddress("0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d"),
     databasePath: ":memory:",
     startBlock: 100,
     confirmations: 2,
+    snapshotIntervalMs: 60000,
+    apiEnabled: false,
+    apiPort: 8080,
     chunkSize: 2,
     blockTimeMs: 2000,
     fastPollMs: 2000,
@@ -43,25 +50,17 @@ function createLogger() {
   };
 }
 
-function createDepositLog(
+function createVaultLog(
   iface: Interface,
-  overrides: Partial<Log> & {
-    sender?: string;
-    onBehalf?: string;
-    assets?: bigint;
-    shares?: bigint;
-  } = {},
+  eventName: "Deposit" | "Withdraw" | "Transfer" | "AccrueInterest",
+  args: readonly unknown[],
+  overrides: Partial<Log> = {},
 ): Log {
-  const fragment = iface.getEvent("Deposit");
-  const sender = overrides.sender ?? "0x1111111111111111111111111111111111111111";
-  const onBehalf =
-    overrides.onBehalf ?? "0x2222222222222222222222222222222222222222";
-  const assets = overrides.assets ?? 1000n;
-  const shares = overrides.shares ?? 900n;
-  const encoded = iface.encodeEventLog(fragment, [sender, onBehalf, assets, shares]);
+  const fragment = iface.getEvent(eventName);
+  const encoded = iface.encodeEventLog(fragment, args);
 
   return {
-    address: "0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d",
+    address: getAddress("0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d"),
     blockHash: overrides.blockHash ?? `0xblock-${overrides.blockNumber ?? 0}`,
     blockNumber: overrides.blockNumber ?? 101,
     data: encoded.data,
@@ -69,7 +68,8 @@ function createDepositLog(
     removed: false,
     topics: encoded.topics,
     transactionHash:
-      overrides.transactionHash ?? `0xtx-${overrides.blockNumber ?? 0}-${overrides.index ?? 0}`,
+      overrides.transactionHash ??
+      `0xtx-${overrides.blockNumber ?? 0}-${overrides.transactionIndex ?? 0}-${overrides.index ?? 0}`,
     transactionIndex: overrides.transactionIndex ?? 0,
   };
 }
@@ -114,10 +114,13 @@ function createProvider(options: {
   };
 }
 
-test("tick processes two chunks with sorted deposits and exact deposit filters", async () => {
+test("tick processes two chunks with a four-topic OR filter and atomically applies sorted ledger state", async () => {
   const db = openDatabase(":memory:");
   const config = createConfig();
   const iface = new Interface(MORPHO_VAULT_ABI);
+  const alice = getAddress("0x1111111111111111111111111111111111111111");
+  const depositor = getAddress("0x2222222222222222222222222222222222222222");
+  const feeRecipient = getAddress("0x3333333333333333333333333333333333333333");
   const calls: Array<
     | { type: "head" }
     | {
@@ -127,42 +130,91 @@ test("tick processes two chunks with sorted deposits and exact deposit filters",
         topics?: Array<string | Array<string | null> | null>;
       }
   > = [];
+  const mintTransfer = createVaultLog(
+    iface,
+    "Transfer",
+    [ZERO_ADDRESS, alice, 100n],
+    {
+      blockNumber: 101,
+      transactionIndex: 1,
+      index: 0,
+      transactionHash: "0xtx-mint",
+    },
+  );
+  const deposit = createVaultLog(
+    iface,
+    "Deposit",
+    [depositor, alice, 1000n, 100n],
+    {
+      blockNumber: 101,
+      transactionIndex: 1,
+      index: 1,
+      transactionHash: "0xtx-mint",
+    },
+  );
+  const accrue = createVaultLog(
+    iface,
+    "AccrueInterest",
+    [1000n, 1200n, 20n, 5n],
+    {
+      blockNumber: 102,
+      transactionIndex: 0,
+      index: 0,
+      transactionHash: "0xtx-accrue",
+    },
+  );
+  const feeMintTransfer = createVaultLog(
+    iface,
+    "Transfer",
+    [ZERO_ADDRESS, feeRecipient, 20n],
+    {
+      blockNumber: 102,
+      transactionIndex: 0,
+      index: 1,
+      transactionHash: "0xtx-accrue",
+    },
+  );
+  const withdraw = createVaultLog(
+    iface,
+    "Withdraw",
+    [alice, alice, alice, 400n, 40n],
+    {
+      blockNumber: 104,
+      transactionIndex: 2,
+      index: 0,
+      transactionHash: "0xtx-withdraw",
+    },
+  );
+  const burnTransfer = createVaultLog(
+    iface,
+    "Transfer",
+    [alice, ZERO_ADDRESS, 40n],
+    {
+      blockNumber: 104,
+      transactionIndex: 2,
+      index: 1,
+      transactionHash: "0xtx-withdraw",
+    },
+  );
   const provider = createProvider({
     heads: [106, 106],
     logsByRange: {
-      "101-102": [
-        createDepositLog(iface, {
-          blockNumber: 102,
-          transactionIndex: 2,
-          index: 1,
-          transactionHash: "0xtx-b",
-          assets: 2000n,
-        }),
-        createDepositLog(iface, {
-          blockNumber: 101,
-          transactionIndex: 1,
-          index: 0,
-          transactionHash: "0xtx-a",
-          assets: 1000n,
-        }),
-      ],
-      "103-104": [
-        createDepositLog(iface, {
-          blockNumber: 104,
-          transactionIndex: 0,
-          index: 3,
-          transactionHash: "0xtx-c",
-          assets: 3000n,
-        }),
-      ],
+      "101-102": [feeMintTransfer, deposit, accrue, mintTransfer],
+      "103-104": [burnTransfer, withdraw],
     },
     calls,
   });
+  const expectedTopics = [[
+    iface.getEvent("Deposit").topicHash,
+    iface.getEvent("Withdraw").topicHash,
+    iface.getEvent("Transfer").topicHash,
+    iface.getEvent("AccrueInterest").topicHash,
+  ]];
 
   try {
     runMigrations(db);
 
-    const crawler = new DepositCrawler({
+    const crawler = new VaultCrawler({
       config,
       db,
       provider,
@@ -174,137 +226,332 @@ test("tick processes two chunks with sorted deposits and exact deposit filters",
     const secondTick = await crawler.tick();
 
     assert.deepEqual(firstTick, {
-      processedLogs: 2,
+      processedLogs: 4,
       fromBlock: 101,
       toBlock: 102,
       safeHead: 104,
       hasMore: true,
     });
     assert.deepEqual(secondTick, {
-      processedLogs: 1,
+      processedLogs: 2,
       fromBlock: 103,
       toBlock: 104,
       safeHead: 104,
       hasMore: false,
     });
-
     assert.deepEqual(calls, [
       { type: "head" },
       {
         type: "logs",
         key: "101-102",
         address: config.contractAddress,
-        topics: [iface.getEvent("Deposit").topicHash],
+        topics: expectedTopics,
       },
       { type: "head" },
       {
         type: "logs",
         key: "103-104",
         address: config.contractAddress,
-        topics: [iface.getEvent("Deposit").topicHash],
+        topics: expectedTopics,
       },
     ]);
 
-    const deposits = db.prepare(
-      `
-        SELECT block_number, tx_hash, tx_index, log_index, assets
-        FROM deposit_events
-        ORDER BY block_number, tx_index, log_index
-      `,
-    ).all() as Array<{
-      block_number: number;
-      tx_hash: string;
-      tx_index: number;
-      log_index: number;
-      assets: string;
-    }>;
+    const deposits = db.prepare(`
+      SELECT block_number, tx_hash, tx_index, log_index, sender, on_behalf, assets, shares
+      FROM deposit_events
+      ORDER BY block_number, tx_index, log_index
+    `).all();
+    const withdraws = db.prepare(`
+      SELECT block_number, tx_hash, tx_index, log_index, on_behalf, assets, shares
+      FROM withdraw_events
+      ORDER BY block_number, tx_index, log_index
+    `).all();
+    const transfers = db.prepare(`
+      SELECT block_number, tx_hash, tx_index, log_index, from_address, to_address, shares
+      FROM transfer_events
+      ORDER BY block_number, tx_index, log_index
+    `).all();
+    const accrues = db.prepare(`
+      SELECT
+        block_number,
+        tx_hash,
+        tx_index,
+        log_index,
+        performance_fee_shares,
+        management_fee_shares,
+        total_supply_before_raw,
+        global_index_after_raw
+      FROM accrue_interest_events
+      ORDER BY block_number, tx_index, log_index
+    `).all();
     const cursor = db.prepare(
       "SELECT last_scanned_block FROM indexer_state WHERE id = ?",
-    ).get(cursorId(config)) as { last_scanned_block: number };
+    ).get(vaultCursorId(config)) as { last_scanned_block: number };
+    const alicePosition = readAccountPosition(db, alice);
+    const feePosition = readAccountPosition(db, feeRecipient);
+    const vaultState = readVaultState(db, config);
 
     assert.deepEqual(deposits, [
       {
         block_number: 101,
-        tx_hash: "0xtx-a",
+        tx_hash: "0xtx-mint",
+        tx_index: 1,
+        log_index: 1,
+        sender: depositor,
+        on_behalf: alice,
+        assets: "1000",
+        shares: "100",
+      },
+    ]);
+    assert.deepEqual(withdraws, [
+      {
+        block_number: 104,
+        tx_hash: "0xtx-withdraw",
+        tx_index: 2,
+        log_index: 0,
+        on_behalf: alice,
+        assets: "400",
+        shares: "40",
+      },
+    ]);
+    assert.deepEqual(transfers, [
+      {
+        block_number: 101,
+        tx_hash: "0xtx-mint",
         tx_index: 1,
         log_index: 0,
-        assets: "1000",
+        from_address: ZERO_ADDRESS,
+        to_address: alice,
+        shares: "100",
       },
       {
         block_number: 102,
-        tx_hash: "0xtx-b",
-        tx_index: 2,
+        tx_hash: "0xtx-accrue",
+        tx_index: 0,
         log_index: 1,
-        assets: "2000",
+        from_address: ZERO_ADDRESS,
+        to_address: feeRecipient,
+        shares: "20",
       },
       {
         block_number: 104,
-        tx_hash: "0xtx-c",
+        tx_hash: "0xtx-withdraw",
+        tx_index: 2,
+        log_index: 1,
+        from_address: alice,
+        to_address: ZERO_ADDRESS,
+        shares: "40",
+      },
+    ]);
+    assert.deepEqual(accrues, [
+      {
+        block_number: 102,
+        tx_hash: "0xtx-accrue",
         tx_index: 0,
-        log_index: 3,
-        assets: "3000",
+        log_index: 0,
+        performance_fee_shares: "20",
+        management_fee_shares: "5",
+        total_supply_before_raw: "100",
+        global_index_after_raw: (SCALE / 5n).toString(),
       },
     ]);
     assert.equal(cursor.last_scanned_block, 104);
+    assert.deepEqual(alicePosition, {
+      address: alice,
+      balanceRaw: "60",
+      rewardDebtRaw: (SCALE / 5n).toString(),
+      earnedPerfFeeSharesRaw: "20",
+      lifetimeDepositedRaw: "1000",
+      lifetimeWithdrawnRaw: "400",
+      updatedBlockNumber: 104,
+      updatedLogIndex: 1,
+    });
+    assert.deepEqual(feePosition, {
+      address: feeRecipient,
+      balanceRaw: "20",
+      rewardDebtRaw: (SCALE / 5n).toString(),
+      earnedPerfFeeSharesRaw: "0",
+      lifetimeDepositedRaw: "0",
+      lifetimeWithdrawnRaw: "0",
+      updatedBlockNumber: 102,
+      updatedLogIndex: 1,
+    });
+    assert.deepEqual(vaultState, {
+      globalIndexRaw: (SCALE / 5n).toString(),
+      totalSupplyRaw: "80",
+      cumulativePerfFeeSharesRaw: "20",
+      cumulativeMgmtFeeSharesRaw: "5",
+      updatedBlockNumber: 104,
+    });
   } finally {
     closeDatabase(db);
   }
 });
 
-test("tick is idempotent when the same chunk is retried and logs repeat", async () => {
+test("tick retries a failed chunk after transaction rollback and applies it exactly once", async () => {
   const db = openDatabase(":memory:");
   const config = createConfig();
   const iface = new Interface(MORPHO_VAULT_ABI);
-  const repeatedLog = createDepositLog(iface, {
-    blockNumber: 101,
-    transactionIndex: 0,
-    index: 0,
-    transactionHash: "0xtx-repeat",
-    assets: 777n,
-  });
+  const alice = getAddress("0x1111111111111111111111111111111111111111");
+  const depositor = getAddress("0x2222222222222222222222222222222222222222");
+  const feeRecipient = getAddress("0x3333333333333333333333333333333333333333");
   const provider = createProvider({
-    heads: [103, 103],
+    heads: [104, 104],
     logsByRange: {
-      "101-101": [repeatedLog],
+      "101-102": [
+        createVaultLog(
+          iface,
+          "Transfer",
+          [ZERO_ADDRESS, feeRecipient, 20n],
+          {
+            blockNumber: 102,
+            transactionIndex: 0,
+            index: 1,
+            transactionHash: "0xtx-accrue",
+          },
+        ),
+        createVaultLog(
+          iface,
+          "Deposit",
+          [depositor, alice, 1000n, 100n],
+          {
+            blockNumber: 101,
+            transactionIndex: 1,
+            index: 1,
+            transactionHash: "0xtx-mint",
+          },
+        ),
+        createVaultLog(
+          iface,
+          "AccrueInterest",
+          [1000n, 1200n, 20n, 5n],
+          {
+            blockNumber: 102,
+            transactionIndex: 0,
+            index: 0,
+            transactionHash: "0xtx-accrue",
+          },
+        ),
+        createVaultLog(
+          iface,
+          "Transfer",
+          [ZERO_ADDRESS, alice, 100n],
+          {
+            blockNumber: 101,
+            transactionIndex: 1,
+            index: 0,
+            transactionHash: "0xtx-mint",
+          },
+        ),
+      ],
     },
   });
 
   try {
     runMigrations(db);
+    db.exec(`
+      CREATE TRIGGER fail_account_position_insert
+      BEFORE INSERT ON account_positions
+      BEGIN
+        SELECT RAISE(ABORT, 'forced account position failure');
+      END;
+    `);
 
-    const crawler = new DepositCrawler({
-      config: createConfig({ chunkSize: 1 }),
+    const crawler = new VaultCrawler({
+      config,
       db,
       provider,
       iface,
       logger: createLogger(),
     });
 
-    const firstTick = await crawler.tick();
-
-    db.prepare("UPDATE indexer_state SET last_scanned_block = ? WHERE id = ?").run(
-      100,
-      cursorId(config),
+    await assert.rejects(
+      () => crawler.tick(),
+      /forced account position failure/,
     );
 
+    const failedCursor = getOrCreateVaultCursor(db, config);
+    const failedDepositCount = db.prepare(
+      "SELECT COUNT(*) AS count FROM deposit_events",
+    ).get() as { count: number };
+    const failedTransferCount = db.prepare(
+      "SELECT COUNT(*) AS count FROM transfer_events",
+    ).get() as { count: number };
+    const failedAccrueCount = db.prepare(
+      "SELECT COUNT(*) AS count FROM accrue_interest_events",
+    ).get() as { count: number };
+
+    assert.equal(failedCursor, config.startBlock);
+    assert.equal(failedDepositCount.count, 0);
+    assert.equal(failedTransferCount.count, 0);
+    assert.equal(failedAccrueCount.count, 0);
+    assert.deepEqual(readVaultState(db, config), {
+      globalIndexRaw: "0",
+      totalSupplyRaw: "0",
+      cumulativePerfFeeSharesRaw: "0",
+      cumulativeMgmtFeeSharesRaw: "0",
+      updatedBlockNumber: 0,
+    });
+
+    db.exec("DROP TRIGGER fail_account_position_insert");
+
     const secondTick = await crawler.tick();
+    const cursor = db.prepare(
+      "SELECT last_scanned_block FROM indexer_state WHERE id = ?",
+    ).get(vaultCursorId(config)) as { last_scanned_block: number };
     const depositCount = db.prepare(
       "SELECT COUNT(*) AS count FROM deposit_events",
     ).get() as { count: number };
-    const cursor = db.prepare(
-      "SELECT last_scanned_block FROM indexer_state WHERE id = ?",
-    ).get(cursorId(config)) as { last_scanned_block: number };
+    const transferCount = db.prepare(
+      "SELECT COUNT(*) AS count FROM transfer_events",
+    ).get() as { count: number };
+    const accrueCount = db.prepare(
+      "SELECT COUNT(*) AS count FROM accrue_interest_events",
+    ).get() as { count: number };
+    const errorCount = db.prepare(
+      "SELECT COUNT(*) AS count FROM crawl_errors",
+    ).get() as { count: number };
+    const alicePosition = readAccountPosition(db, alice);
+    const feePosition = readAccountPosition(db, feeRecipient);
 
-    assert.equal(firstTick.processedLogs, 1);
-    assert.equal(secondTick.processedLogs, 1);
+    assert.deepEqual(secondTick, {
+      processedLogs: 4,
+      fromBlock: 101,
+      toBlock: 102,
+      safeHead: 102,
+      hasMore: false,
+    });
+    assert.equal(cursor.last_scanned_block, 102);
     assert.equal(depositCount.count, 1);
-    assert.equal(cursor.last_scanned_block, 101);
+    assert.equal(transferCount.count, 2);
+    assert.equal(accrueCount.count, 1);
+    assert.equal(errorCount.count, 1);
+    assert.deepEqual(alicePosition, {
+      address: alice,
+      balanceRaw: "100",
+      rewardDebtRaw: "0",
+      earnedPerfFeeSharesRaw: "0",
+      lifetimeDepositedRaw: "1000",
+      lifetimeWithdrawnRaw: "0",
+      updatedBlockNumber: 101,
+      updatedLogIndex: 1,
+    });
+    assert.deepEqual(feePosition, {
+      address: feeRecipient,
+      balanceRaw: "20",
+      rewardDebtRaw: (SCALE / 5n).toString(),
+      earnedPerfFeeSharesRaw: "0",
+      lifetimeDepositedRaw: "0",
+      lifetimeWithdrawnRaw: "0",
+      updatedBlockNumber: 102,
+      updatedLogIndex: 1,
+    });
   } finally {
     closeDatabase(db);
   }
 });
 
-test("tick records chunk failures without advancing the cursor", async () => {
+test("tick records chunk failures without advancing the vault cursor", async () => {
   const db = openDatabase(":memory:");
   const config = createConfig();
   const iface = new Interface(MORPHO_VAULT_ABI);
@@ -318,7 +565,7 @@ test("tick records chunk failures without advancing the cursor", async () => {
   try {
     runMigrations(db);
 
-    const crawler = new DepositCrawler({
+    const crawler = new VaultCrawler({
       config,
       db,
       provider,
@@ -328,15 +575,10 @@ test("tick records chunk failures without advancing the cursor", async () => {
 
     await assert.rejects(() => crawler.tick(), /rpc getLogs failed/);
 
-    const cursor = getOrCreateCursor(db, config);
+    const cursor = getOrCreateVaultCursor(db, config);
     const errors = db.prepare(
       "SELECT chain_id, from_block, to_block, message FROM crawl_errors",
-    ).all() as Array<{
-      chain_id: number;
-      from_block: number;
-      to_block: number;
-      message: string;
-    }>;
+    ).all();
 
     assert.equal(cursor, 100);
     assert.deepEqual(errors, [
@@ -352,14 +594,24 @@ test("tick records chunk failures without advancing the cursor", async () => {
   }
 });
 
-test("tick rejects undecodable deposit logs, records the crawl error, and leaves the cursor unchanged", async () => {
+test("tick rejects undecodable vault logs, records the crawl error, and leaves the cursor unchanged", async () => {
   const db = openDatabase(":memory:");
   const config = createConfig();
   const iface = new Interface(MORPHO_VAULT_ABI);
-  const malformedLog = createDepositLog(iface, {
-    blockNumber: 101,
-    transactionHash: "0xtx-bad-deposit",
-  });
+  const malformedLog = createVaultLog(
+    iface,
+    "Deposit",
+    [
+      "0x1111111111111111111111111111111111111111",
+      "0x2222222222222222222222222222222222222222",
+      1000n,
+      100n,
+    ],
+    {
+      blockNumber: 101,
+      transactionHash: "0xtx-bad-vault-log",
+    },
+  );
   const provider = createProvider({
     heads: [105],
     logsByRange: {
@@ -375,7 +627,7 @@ test("tick rejects undecodable deposit logs, records the crawl error, and leaves
   try {
     runMigrations(db);
 
-    const crawler = new DepositCrawler({
+    const crawler = new VaultCrawler({
       config,
       db,
       provider,
@@ -385,29 +637,25 @@ test("tick rejects undecodable deposit logs, records the crawl error, and leaves
 
     await assert.rejects(
       () => crawler.tick(),
-      /undecodable Deposit log/,
+      /encountered undecodable vault log/,
     );
 
-    const cursor = getOrCreateCursor(db, config);
-    const deposits = db.prepare("SELECT COUNT(*) AS count FROM deposit_events").get() as {
-      count: number;
-    };
+    const cursor = getOrCreateVaultCursor(db, config);
+    const depositCount = db.prepare(
+      "SELECT COUNT(*) AS count FROM deposit_events",
+    ).get() as { count: number };
     const errors = db.prepare(
       "SELECT from_block, to_block, message FROM crawl_errors",
-    ).all() as Array<{
-      from_block: number;
-      to_block: number;
-      message: string;
-    }>;
+    ).all();
 
     assert.equal(cursor, 100);
-    assert.equal(deposits.count, 0);
+    assert.equal(depositCount.count, 0);
     assert.deepEqual(errors, [
       {
         from_block: 101,
         to_block: 102,
         message:
-          "encountered undecodable Deposit log for 0xtx-bad-deposit:0 in chunk 101-102",
+          "encountered undecodable vault log for 0xtx-bad-vault-log:0 in chunk 101-102",
       },
     ]);
   } finally {
@@ -455,7 +703,7 @@ test("start schedules fast then slow in auto mode and stop clears the pending ti
   try {
     runMigrations(db);
 
-    const crawler = new DepositCrawler({
+    const crawler = new VaultCrawler({
       config,
       db,
       provider,
@@ -483,9 +731,6 @@ test("stop waits for the active run loop to finish before resolving", async () =
   const iface = new Interface(MORPHO_VAULT_ABI);
   const provider = createProvider({
     heads: [102],
-    logsByRange: {
-      "101-100": [],
-    },
   });
   const queued: Array<() => void | Promise<void>> = [];
   const originalSetTimeout = global.setTimeout;
@@ -502,7 +747,7 @@ test("stop waits for the active run loop to finish before resolving", async () =
   try {
     runMigrations(db);
 
-    const crawler = new DepositCrawler({
+    const crawler = new VaultCrawler({
       config,
       db,
       provider,
@@ -570,7 +815,7 @@ test("stop prevents a queued timeout callback from starting a tick after shutdow
   try {
     runMigrations(db);
 
-    const crawler = new DepositCrawler({
+    const crawler = new VaultCrawler({
       config,
       db,
       provider,

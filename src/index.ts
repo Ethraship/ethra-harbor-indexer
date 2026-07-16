@@ -5,7 +5,7 @@ import { Interface } from "ethers";
 import { MORPHO_VAULT_ABI } from "./abi/morphoVault";
 import { loadConfig } from "./config";
 import { closeDatabase, openDatabase, runMigrations } from "./db";
-import { DepositCrawler } from "./indexer/crawler";
+import { VaultCrawler } from "./indexer/crawler";
 import { createLogger } from "./logger";
 import { createBaseProviderClient } from "./provider/baseProvider";
 
@@ -17,7 +17,7 @@ function bootstrap(): void {
 
   runMigrations(db);
 
-  const crawler = new DepositCrawler({
+  const crawler = new VaultCrawler({
     config,
     db,
     provider: createBaseProviderClient(config),
@@ -51,7 +51,7 @@ function bootstrap(): void {
     void shutdown("SIGTERM");
   });
 
-  logger.info("starting deposit crawler", {
+  logger.info("starting vault crawler", {
     contractAddress: config.contractAddress,
     startBlock: config.startBlock,
     chunkSize: config.chunkSize,
