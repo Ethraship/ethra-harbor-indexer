@@ -1,6 +1,4 @@
 import type Database from "better-sqlite3";
-import { getAddress } from "ethers";
-
 import type { AppConfig } from "../config";
 import { vaultCursorId } from "../config";
 import type { DecodedVaultEvent } from "../indexer/eventDecoder";
@@ -193,22 +191,57 @@ function insertDepositEvent(
   );
 }
 
-function extractIndexedAddress(rawLogJson: string, topicIndex: number): string | null {
-  try {
-    const parsed = JSON.parse(rawLogJson) as { topics?: unknown };
+function rawLogIdentity(event: DecodedVaultEvent): string {
+  return `${event.base.chainId}:${event.base.txHash}:${event.base.logIndex}`;
+}
 
-    if (!Array.isArray(parsed.topics)) {
-      return null;
+function assertNoDuplicateRawLogsInChunk(decodedEvents: DecodedVaultEvent[]): void {
+  const seen = new Set<string>();
+
+  for (const event of decodedEvents) {
+    const identity = rawLogIdentity(event);
+
+    if (seen.has(identity)) {
+      throw new Error(`duplicate raw vault log identity in chunk: ${identity}`);
     }
 
-    const topic = parsed.topics[topicIndex];
-    if (typeof topic !== "string" || !topic.startsWith("0x") || topic.length !== 66) {
-      return null;
-    }
+    seen.add(identity);
+  }
+}
 
-    return getAddress(`0x${topic.slice(26)}`);
-  } catch {
-    return null;
+function prepareRawLogExistsStatement(db: Database.Database): Database.Statement {
+  return db.prepare(`
+    SELECT 1
+    FROM (
+      SELECT chain_id, tx_hash, log_index FROM deposit_events
+      UNION ALL
+      SELECT chain_id, tx_hash, log_index FROM withdraw_events
+      UNION ALL
+      SELECT chain_id, tx_hash, log_index FROM transfer_events
+      UNION ALL
+      SELECT chain_id, tx_hash, log_index FROM accrue_interest_events
+    )
+    WHERE chain_id = ? AND tx_hash = ? AND log_index = ?
+    LIMIT 1
+  `);
+}
+
+function assertNoPersistedRawLogs(
+  rawLogExists: Database.Statement,
+  decodedEvents: DecodedVaultEvent[],
+): void {
+  for (const event of decodedEvents) {
+    const existing = rawLogExists.get(
+      event.base.chainId,
+      event.base.txHash,
+      event.base.logIndex,
+    ) as { 1: number } | undefined;
+
+    if (existing) {
+      throw new Error(
+        `already-persisted raw vault log identity: ${rawLogIdentity(event)}`,
+      );
+    }
   }
 }
 
@@ -585,14 +618,16 @@ export function insertSnapshot(db: Database.Database, snapshot: Snapshot): void 
 export function readLatestSnapshot(db: Database.Database): Snapshot | null {
   const row = db.prepare(`
     SELECT
+      id,
       block_number,
       total_assets_raw,
       total_supply_raw,
       captured_at
     FROM share_price_snapshots
-    ORDER BY block_number DESC
+    ORDER BY block_number DESC, captured_at DESC, id DESC
     LIMIT 1
   `).get() as {
+    id: number;
     block_number: number;
     total_assets_raw: string;
     total_supply_raw: string;
@@ -616,6 +651,7 @@ export function applyChunk(
   config: AppConfig,
   input: ApplyChunkInput,
 ): void {
+  const rawLogExists = prepareRawLogExistsStatement(db);
   const updateCursor = db.prepare(`
     UPDATE indexer_state
     SET chain_id = ?, contract_address = ?, last_scanned_block = ?, updated_at = ?
@@ -623,6 +659,8 @@ export function applyChunk(
   `);
   const persistChunk = db.transaction((chunk: ApplyChunkInput) => {
     getOrCreateVaultCursor(db, config);
+    assertNoDuplicateRawLogsInChunk(chunk.decodedEvents);
+    assertNoPersistedRawLogs(rawLogExists, chunk.decodedEvents);
 
     const currentVaultState = readVaultState(db, config);
     const accounts = new Map<string, AccountLedger>();
@@ -660,7 +698,7 @@ export function applyChunk(
             txHash: event.base.txHash,
             txIndex: event.base.txIndex,
             logIndex: event.base.logIndex,
-            sender: extractIndexedAddress(event.base.rawLogJson, 1) ?? event.onBehalf,
+            sender: event.sender,
             onBehalf: event.onBehalf,
             assets: event.assets,
             shares: event.shares,

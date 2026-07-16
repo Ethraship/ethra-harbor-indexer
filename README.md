@@ -77,7 +77,7 @@ npm start
 | `BASE_RPC_URL` | Primary Base HTTP(S) RPC. | `https://base-rpc.publicnode.com` | Used first for heads, logs, and snapshot reads. |
 | `BASE_CONTRACT_ADDRESS` | Vault contract to index. | `0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d` | Fixed production target. |
 | `DATABASE_PATH` | SQLite file path. | `./data/ethra-harbor-indexer.sqlite` | Persist this path between runs. |
-| `START_BLOCK` | Initial cursor block for a fresh DB. | `48578255` | Only used when the cursor row is first created. |
+| `START_BLOCK` | Initial cursor block for a fresh DB. | `48578254` | Seeds one block before deployment so the first scanned block is `48578255`. |
 | `CONFIRMATIONS` | Confirmation buffer before crawl. | `15` | Reorg posture is confirmation-buffer-only in v1. |
 | `SNAPSHOT_INTERVAL_MS` | Share-price snapshot cadence. | `60000` | Snapshotter retries on the same interval after errors. |
 | `API_ENABLED` | Enable the read-only HTTP API. | `true` | Any value other than `false` enables it. |
@@ -115,7 +115,9 @@ The crawler cursor lives in `indexer_state` under the vault-specific id:
 `base:vault:0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d`
 
 The crawler starts from `last_scanned_block + 1`. `START_BLOCK` only matters
-when the database has no existing cursor row.
+when the database has no existing cursor row. With the default seed
+`48578254`, the first crawl window starts at the vault deployment block
+`48578255`.
 
 This project is still in the dev-stage reset window. When schema/state changes
 break compatibility, delete the SQLite file and restart the service to re-crawl
@@ -136,6 +138,8 @@ sqlite3 ./data/ethra-harbor-indexer.sqlite "select last_scanned_block from index
 
 - Chunk application is atomic: raw event inserts, ledger updates, vault-state
   updates, and cursor advancement commit in one SQLite transaction.
+- `applyChunk` rejects duplicate raw-log identities inside a fetched chunk and
+  rejects replays of already-persisted raw logs before any ledger mutation.
 - Raw event tables keep `block_hash` for future rollback support, but v1 reorg
   posture is the confirmation buffer only.
 - Wallet address is the only identity. There is no user-profile or multi-wallet

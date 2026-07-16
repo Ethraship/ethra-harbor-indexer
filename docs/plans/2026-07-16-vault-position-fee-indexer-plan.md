@@ -15,7 +15,7 @@
 - The crawler retry/idempotency test must simulate rollback after a failed transaction. Replaying a chunk that already committed is not supported because the accumulator is not idempotent.
 - Dev-stage schema reset is explicit: local SQLite files using the old schema must be deleted before running this feature. The migration only creates the new schema for empty/reset databases; it does not silently migrate old local data.
 - `/vault` share price is returned as an integer string, not a floating point value: `sharePriceScaledRaw = total_assets_raw * 10^18 / total_supply_raw` and `sharePriceScale = "1000000000000000000"`.
-- `START_BLOCK` defaults to deployment block `48578255`.
+- `START_BLOCK` defaults to `48578254` so the first scanned block is deployment block `48578255`.
 
 ## Global Constraints
 
@@ -45,7 +45,7 @@ Reference spec: `docs/plans/2026-07-16-vault-position-fee-indexer-spec.md`.
 - Test: `test/config.test.ts`
 
 **Interfaces:**
-- Produces: `AppConfig` gains `snapshotIntervalMs: number`, `apiEnabled: boolean`, `apiPort: number`. Default `CONFIRMATIONS` becomes `15`; default `START_BLOCK` becomes `48578255`. New cursor id helper uses prefix `base:vault:`.
+- Produces: `AppConfig` gains `snapshotIntervalMs: number`, `apiEnabled: boolean`, `apiPort: number`. Default `CONFIRMATIONS` becomes `15`; default `START_BLOCK` becomes `48578254` so the first scan is block `48578255`. New cursor id helper uses prefix `base:vault:`.
 
 - [ ] **Step 1: Write failing tests** for the new fields.
 
@@ -54,7 +54,7 @@ Reference spec: `docs/plans/2026-07-16-vault-position-fee-indexer-spec.md`.
 test("defaults include snapshot + api config", () => {
   const c = loadConfig({ BASE_CHAIN_ID: "8453" } as NodeJS.ProcessEnv);
   assert.equal(c.confirmations, 15);
-  assert.equal(c.startBlock, 48578255);
+  assert.equal(c.startBlock, 48578254);
   assert.equal(c.snapshotIntervalMs, 60000);
   assert.equal(c.apiEnabled, true);
   assert.equal(c.apiPort, 8080);
@@ -71,13 +71,13 @@ test("rejects invalid api port", () => {
 
 - [ ] **Step 2: Run tests to confirm they fail.** Run: `node --import tsx --test test/config.test.ts` — Expected: FAIL (unknown properties / wrong defaults).
 
-- [ ] **Step 3: Extend `AppConfig` and `DEFAULTS`.** Add to the interface: `snapshotIntervalMs: number; apiEnabled: boolean; apiPort: number;`. Add defaults `START_BLOCK: "48578255"`, `CONFIRMATIONS: "15"`, `SNAPSHOT_INTERVAL_MS: "60000"`, `API_ENABLED: "true"`, `API_PORT: "8080"`. Parse `snapshotIntervalMs` with `readNumber(env, "SNAPSHOT_INTERVAL_MS", 1000)`, `apiPort` with `readNumber(env, "API_PORT", 1)` bounded `<= 65535`, and `apiEnabled` as `(env.API_ENABLED ?? "true") !== "false"`.
+- [ ] **Step 3: Extend `AppConfig` and `DEFAULTS`.** Add to the interface: `snapshotIntervalMs: number; apiEnabled: boolean; apiPort: number;`. Add defaults `START_BLOCK: "48578254"` so the first scan is deployment block `48578255`, `CONFIRMATIONS: "15"`, `SNAPSHOT_INTERVAL_MS: "60000"`, `API_ENABLED: "true"`, `API_PORT: "8080"`. Parse `snapshotIntervalMs` with `readNumber(env, "SNAPSHOT_INTERVAL_MS", 1000)`, `apiPort` with `readNumber(env, "API_PORT", 1)` bounded `<= 65535`, and `apiEnabled` as `(env.API_ENABLED ?? "true") !== "false"`.
 
 - [ ] **Step 4: Add a vault cursor id helper.** Export `export function vaultCursorId(config: AppConfig): string { return \`base:vault:${config.contractAddress.toLowerCase()}\`; }` (kept here or in the repo module — colocate with other cursor logic in Task 3; if placed in Task 3, skip here).
 
 - [ ] **Step 5: Run tests to confirm pass.** Run: `node --import tsx --test test/config.test.ts` — Expected: PASS.
 
-- [ ] **Step 6: Update `.env.example`** with `CONFIRMATIONS=15`, `START_BLOCK=48578255`, `SNAPSHOT_INTERVAL_MS=60000`, `API_ENABLED=true`, `API_PORT=8080`.
+- [ ] **Step 6: Update `.env.example`** with `CONFIRMATIONS=15`, `START_BLOCK=48578254`, `SNAPSHOT_INTERVAL_MS=60000`, `API_ENABLED=true`, `API_PORT=8080`.
 
 - [ ] **Step 7: Commit.** `git add src/config.ts .env.example test/config.test.ts && git commit -m "feat: add snapshot + api config and raise confirmations default"`
 

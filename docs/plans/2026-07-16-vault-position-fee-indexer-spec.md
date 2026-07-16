@@ -282,7 +282,7 @@ strings.
 ```env
 # existing crawl vars retained
 CONFIRMATIONS=15            # raised default for stateful ledger safety
-START_BLOCK=48578255        # recommend deployment block for full history
+START_BLOCK=48578254        # seed one block before deployment so first scan is 48578255
 SNAPSHOT_INTERVAL_MS=60000  # share-price snapshot cadence
 API_ENABLED=true
 API_PORT=8080

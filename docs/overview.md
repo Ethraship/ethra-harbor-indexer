@@ -59,6 +59,8 @@ The indexer processes Base mainnet logs in deterministic
 atomic: raw event inserts, derived state updates, and cursor advancement happen
 inside one SQLite transaction. Reorg safety in this development stage is a
 confirmation buffer, with block hashes stored for future rollback support.
+Fresh databases seed `START_BLOCK` to `48578254` so the first scanned block is
+the vault deployment block `48578255`.
 
 The SQLite schema may be reset during early development because there is no
 real user data yet. If shared, remote, production, or user-owned data appears,

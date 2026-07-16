@@ -36,6 +36,31 @@ type VaultDbApi = typeof dbApi & {
   readAccountPosition(db: Parameters<typeof dbApi.closeDatabase>[0], address: string): AccountPosition;
   insertSnapshot(db: Parameters<typeof dbApi.closeDatabase>[0], snapshot: Snapshot): void;
   readLatestSnapshot(db: Parameters<typeof dbApi.closeDatabase>[0]): Snapshot | null;
+  applyChunk(
+    db: Parameters<typeof dbApi.closeDatabase>[0],
+    config: ReturnType<typeof loadConfig>,
+    input: {
+      decodedEvents: Array<{
+        kind: "deposit";
+        sender: string;
+        onBehalf: string;
+        assets: string;
+        shares: string;
+        base: {
+          chainId: number;
+          contractAddress: string;
+          blockNumber: number;
+          blockHash: string;
+          txHash: string;
+          txIndex: number;
+          logIndex: number;
+          rawLogJson: string;
+          createdAt: number;
+        };
+      }>;
+      toBlock: number;
+    },
+  ): void;
   upsertVaultState(
     db: Parameters<typeof dbApi.closeDatabase>[0],
     config: ReturnType<typeof loadConfig>,
@@ -45,10 +70,41 @@ type VaultDbApi = typeof dbApi & {
 
 function createConfig(overrides: Record<string, string> = {}) {
   return loadConfig({
-    START_BLOCK: "48578255",
+    START_BLOCK: "48578254",
     BASE_CONTRACT_ADDRESS: "0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d",
     ...overrides,
   });
+}
+
+function createDepositEvent(overrides: {
+  txHash?: string;
+  logIndex?: number;
+  blockNumber?: number;
+  txIndex?: number;
+  sender?: string;
+  onBehalf?: string;
+  assets?: string;
+  shares?: string;
+  rawLogJson?: string;
+} = {}) {
+  return {
+    kind: "deposit" as const,
+    sender: overrides.sender ?? "0x2222222222222222222222222222222222222222",
+    onBehalf: overrides.onBehalf ?? "0x1111111111111111111111111111111111111111",
+    assets: overrides.assets ?? "1000",
+    shares: overrides.shares ?? "100",
+    base: {
+      chainId: 8453,
+      contractAddress: "0x9D2F57159ecA69265a9B9EFAAa8BC2B6b2dF364d",
+      blockNumber: overrides.blockNumber ?? 48578255,
+      blockHash: "0xblock-48578255",
+      txHash: overrides.txHash ?? "0xtx-deposit-1",
+      txIndex: overrides.txIndex ?? 0,
+      logIndex: overrides.logIndex ?? 0,
+      rawLogJson: overrides.rawLogJson ?? '{"topics":["0xdeadbeef"]}',
+      createdAt: 1712345600,
+    },
+  };
 }
 
 test("runMigrations creates the vault schema without changing deposit_events", () => {
@@ -164,7 +220,7 @@ test("getOrCreateVaultCursor seeds START_BLOCK and vault reads return zero defau
       "0x1111111111111111111111111111111111111111",
     );
 
-    assert.equal(cursor, 48578255);
+    assert.equal(cursor, 48578254);
     assert.deepEqual(state, {
       globalIndexRaw: "0",
       totalSupplyRaw: "0",
@@ -272,6 +328,132 @@ test("readLatestSnapshot returns null when empty and the highest block snapshot 
       totalAssetsRaw: "1100",
       totalSupplyRaw: "550",
       capturedAt: 1712345700,
+    });
+
+    vaultDb.insertSnapshot(db, {
+      blockNumber: 48578261,
+      totalAssetsRaw: "1150",
+      totalSupplyRaw: "575",
+      capturedAt: 1712345800,
+    });
+    vaultDb.insertSnapshot(db, {
+      blockNumber: 48578261,
+      totalAssetsRaw: "1200",
+      totalSupplyRaw: "600",
+      capturedAt: 1712345800,
+    });
+
+    assert.deepEqual(vaultDb.readLatestSnapshot(db), {
+      blockNumber: 48578261,
+      totalAssetsRaw: "1200",
+      totalSupplyRaw: "600",
+      capturedAt: 1712345800,
+    });
+  } finally {
+    dbApi.closeDatabase(db);
+  }
+});
+
+test("applyChunk rejects duplicate raw log identities inside one chunk and rolls everything back", () => {
+  const db = dbApi.openDatabase(":memory:");
+  const config = createConfig();
+  const vaultDb = dbApi as VaultDbApi;
+  const duplicate = createDepositEvent();
+
+  try {
+    dbApi.runMigrations(db);
+
+    assert.throws(
+      () => {
+        vaultDb.applyChunk(db, config, {
+          decodedEvents: [duplicate, duplicate],
+          toBlock: 48578255,
+        });
+      },
+      /duplicate raw vault log/i,
+    );
+
+    assert.equal(vaultDb.getOrCreateVaultCursor(db, config), 48578254);
+    assert.equal(
+      (
+        db.prepare("SELECT COUNT(*) AS count FROM deposit_events").get() as {
+          count: number;
+        }
+      ).count,
+      0,
+    );
+    assert.deepEqual(
+      vaultDb.readAccountPosition(db, duplicate.onBehalf),
+      {
+        address: duplicate.onBehalf,
+        balanceRaw: "0",
+        rewardDebtRaw: "0",
+        earnedPerfFeeSharesRaw: "0",
+        lifetimeDepositedRaw: "0",
+        lifetimeWithdrawnRaw: "0",
+        updatedBlockNumber: 0,
+        updatedLogIndex: 0,
+      },
+    );
+  } finally {
+    dbApi.closeDatabase(db);
+  }
+});
+
+test("applyChunk rejects already-persisted raw log identities before ledger mutation", () => {
+  const db = dbApi.openDatabase(":memory:");
+  const config = createConfig();
+  const vaultDb = dbApi as VaultDbApi;
+  const persisted = createDepositEvent();
+
+  try {
+    dbApi.runMigrations(db);
+
+    vaultDb.applyChunk(db, config, {
+      decodedEvents: [persisted],
+      toBlock: 48578255,
+    });
+
+    assert.equal(vaultDb.getOrCreateVaultCursor(db, config), 48578255);
+    assert.deepEqual(vaultDb.readAccountPosition(db, persisted.onBehalf), {
+      address: persisted.onBehalf,
+      balanceRaw: "0",
+      rewardDebtRaw: "0",
+      earnedPerfFeeSharesRaw: "0",
+      lifetimeDepositedRaw: "1000",
+      lifetimeWithdrawnRaw: "0",
+      updatedBlockNumber: 48578255,
+      updatedLogIndex: 0,
+    });
+
+    assert.throws(
+      () => {
+        vaultDb.applyChunk(db, config, {
+          decodedEvents: [persisted],
+          toBlock: 48578256,
+        });
+      },
+      /already-persisted raw vault log/i,
+    );
+
+    assert.equal(vaultDb.getOrCreateVaultCursor(db, config), 48578255);
+    assert.equal(
+      (
+        db.prepare("SELECT COUNT(*) AS count FROM deposit_events").get() as {
+          count: number;
+        }
+      ).count,
+      1,
+    );
+    assert.deepEqual(vaultDb.readAccountPosition(db, persisted.onBehalf), {
+      address: persisted.onBehalf,
+      balanceRaw: "0",
+      rewardDebtRaw: "0",
+      earnedPerfFeeSharesRaw: "0",
+      lifetimeDepositedRaw: "1000",
+      lifetimeWithdrawnRaw: "0",
+      updatedBlockNumber: 48578255,
+      updatedLogIndex: 0,
     });
   } finally {
     dbApi.closeDatabase(db);

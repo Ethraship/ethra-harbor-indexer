@@ -18,6 +18,7 @@ export interface BaseLogFields {
 export type DecodedVaultEvent =
   | {
       kind: "deposit";
+      sender: string;
       onBehalf: string;
       assets: string;
       shares: string;
@@ -107,6 +108,7 @@ export function decodeVaultLog(
     case "Deposit":
       return {
         kind: "deposit",
+        sender: getAddress(parsedLog.args.sender),
         onBehalf: getAddress(parsedLog.args.onBehalf),
         assets: parsedLog.args.assets.toString(),
         shares: parsedLog.args.shares.toString(),

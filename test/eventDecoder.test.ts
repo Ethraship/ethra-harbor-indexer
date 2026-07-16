@@ -77,6 +77,7 @@ test("decodeVaultLog returns normalized deposit fields", () => {
 
     assert.deepEqual(decoded, {
       kind: "deposit",
+      sender: getAddress("0x1111111111111111111111111111111111111111"),
       onBehalf: getAddress("0xabcdefabcdefabcdefabcdefabcdefabcdefabcd"),
       assets: "1234567890123456789",
       shares: "987654321098765432",

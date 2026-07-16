@@ -14,7 +14,7 @@ test("loadConfig returns the documented defaults", () => {
     reconcileRpcUrls: ["https://base-rpc.publicnode.com"],
     contractAddress: getAddress("0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d"),
     databasePath: "./data/ethra-harbor-indexer.sqlite",
-    startBlock: 48578255,
+    startBlock: 48578254,
     confirmations: 15,
     chunkSize: 1000,
     blockTimeMs: 2000,
@@ -32,7 +32,7 @@ test("defaults include snapshot + api config", () => {
   const c = loadConfig({ BASE_CHAIN_ID: "8453" } as NodeJS.ProcessEnv);
 
   assert.equal(c.confirmations, 15);
-  assert.equal(c.startBlock, 48578255);
+  assert.equal(c.startBlock, 48578254);
   assert.equal(c.snapshotIntervalMs, 60000);
   assert.equal(c.apiEnabled, true);
   assert.equal(c.apiPort, 8080);

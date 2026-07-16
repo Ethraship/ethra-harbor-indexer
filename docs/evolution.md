@@ -37,3 +37,7 @@
 - Area: full vault position and fee-attribution indexer documentation
 - Changed: updated `README.md`, `docs/overview.md`, and new `docs/architecture.md` to document the shipped four-event crawler, atomic `applyChunk` flow, ledger accumulator, periodic share-price snapshotter, read-only API, strict config defaults (`START_BLOCK=48578255`, `CONFIRMATIONS=15`, `SNAPSHOT_INTERVAL_MS`, `API_*`), and the dev-stage SQLite reset path.
 - Why: the backend now ships as a full position + fee-attribution indexer rather than a deposit-only crawler, and the project docs need to match the live schema, API surface, confirmation policy, and operational recovery model.
+
+- Area: final review fixes for vault chunk safety and cursor seeding
+- Changed: made `applyChunk` reject duplicate or already-persisted raw-log identities before ledger mutation, added deterministic snapshot tie-breakers, persisted deposit `sender` directly from decoded events, and changed the default `START_BLOCK` seed to `48578254` so the first scanned block remains the deployment block `48578255`.
+- Why: the final review found replay and duplicate-log paths that could double-apply derived state, nondeterministic same-block snapshot reads, dropped deposit sender data, and a default cursor seed that skipped the deployment block on a fresh database.

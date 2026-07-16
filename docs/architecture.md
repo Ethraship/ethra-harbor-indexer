@@ -121,6 +121,9 @@ fallbacks.
 8. If any step fails, the chunk is not partially committed. The error is
    recorded in `crawl_errors`, and the range is retried on a later loop.
 
+Fresh databases seed `START_BLOCK` to `48578254`, so the first scanned block is
+the deployment block `48578255`.
+
 ## Accumulator And Ledger Semantics
 
 Global vault state:
@@ -145,6 +148,9 @@ Semantics:
 - `Withdraw` increments lifetime withdrawn for `onBehalf`.
 - `AccrueInterest` adds performance-fee shares to the cumulative state and
   advances the global fee-per-share index using the pre-mint supply.
+- `applyChunk` rejects duplicate `(chain_id, tx_hash, log_index)` identities
+  both within the fetched chunk and against already-persisted raw event rows
+  before any ledger mutation.
 
 This keeps fee attribution replayable from chain logs without per-accrual
 fanout writes.
