@@ -115,23 +115,14 @@ export function settle(account: AccountLedger, globalIndexRaw: bigint): void {
 export function applyDeposit(state: LedgerState, ev: DepositEvent): void {
   const account = getOrCreateAccount(state, ev.onBehalf);
 
-  settleWithIndex(account, state.globalIndexRaw);
-  account.balanceRaw += ev.shares;
   account.lifetimeDepositedRaw += ev.assets;
-  state.totalSupplyRaw += ev.shares;
-  account.rewardDebtRaw = state.globalIndexRaw;
   stamp(account, ev.block, ev.logIndex);
 }
 
 export function applyWithdraw(state: LedgerState, ev: WithdrawEvent): void {
   const account = getOrCreateAccount(state, ev.onBehalf);
 
-  settleWithIndex(account, state.globalIndexRaw);
-  assertEnoughBalance(account, ev.shares);
-  account.balanceRaw -= ev.shares;
   account.lifetimeWithdrawnRaw += ev.assets;
-  state.totalSupplyRaw -= ev.shares;
-  account.rewardDebtRaw = state.globalIndexRaw;
   stamp(account, ev.block, ev.logIndex);
 }
 

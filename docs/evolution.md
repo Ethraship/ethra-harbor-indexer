@@ -13,3 +13,7 @@
 - Area: vault DB reads and migration reset handling
 - Changed: keyed `readVaultState` to the active vault config and added a regression check that `runMigrations` throws the explicit reset error when only `001_initial_schema` is present.
 - Why: vault reward state must stay isolated per configured vault, and older local databases should fail fast instead of silently drifting onto the new schema.
+
+- Area: ledger accumulator semantics
+- Changed: made deposit and withdraw ledger handlers lifetime-only metadata updates, and moved all share supply changes to transfer mint/burn paths.
+- Why: share balances and total supply should stay canonical to `Transfer` events while deposit and withdraw remain attribution metadata for lifetime assets.

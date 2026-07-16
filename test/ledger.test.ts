@@ -31,14 +31,14 @@ function getAccount(state: LedgerState, address: string): AccountLedger {
   return account;
 }
 
-test("single user second deposit only earns fees accrued before the new shares existed", () => {
+test("single user second mint only earns fees accrued before the new shares existed", () => {
   const state = emptyState();
   const user = "0x1111111111111111111111111111111111111111";
 
-  applyDeposit(state, {
-    onBehalf: user,
+  applyTransfer(state, {
+    from: ZERO_ADDRESS,
+    to: user,
     shares: 2n,
-    assets: 2n,
     block: 1,
     logIndex: 0,
   });
@@ -48,10 +48,10 @@ test("single user second deposit only earns fees accrued before the new shares e
     block: 2,
     logIndex: 0,
   });
-  applyDeposit(state, {
-    onBehalf: user,
+  applyTransfer(state, {
+    from: ZERO_ADDRESS,
+    to: user,
     shares: 7n,
-    assets: 7n,
     block: 3,
     logIndex: 0,
   });
@@ -68,7 +68,7 @@ test("single user second deposit only earns fees accrued before the new shares e
     balanceRaw: 9n,
     rewardDebtRaw: state.globalIndexRaw,
     earnedPerfFeeSharesRaw: 110n,
-    lifetimeDepositedRaw: 9n,
+    lifetimeDepositedRaw: 0n,
     lifetimeWithdrawnRaw: 0n,
     touched: true,
     updatedBlockNumber: 3,
@@ -174,10 +174,10 @@ test("withdrawal before accrual prevents new fees from being earned", () => {
   const state = emptyState();
   const user = getAddress("0x6666666666666666666666666666666666666666");
 
-  applyDeposit(state, {
-    onBehalf: user,
+  applyTransfer(state, {
+    from: ZERO_ADDRESS,
+    to: user,
     shares: 100n,
-    assets: 100n,
     block: 1,
     logIndex: 0,
   });
@@ -187,17 +187,24 @@ test("withdrawal before accrual prevents new fees from being earned", () => {
     block: 2,
     logIndex: 0,
   });
+  applyTransfer(state, {
+    from: user,
+    to: ZERO_ADDRESS,
+    shares: 100n,
+    block: 3,
+    logIndex: 0,
+  });
   applyWithdraw(state, {
     onBehalf: user,
-    shares: 100n,
     assets: 100n,
-    block: 3,
+    shares: 100n,
+    block: 4,
     logIndex: 0,
   });
   applyAccrue(state, {
     performanceFeeShares: 50n,
     managementFeeShares: 0n,
-    block: 4,
+    block: 5,
     logIndex: 0,
   });
 
@@ -213,10 +220,10 @@ test("transfer follows shares so the receiver earns later fees", () => {
   const alice = getAddress("0x7777777777777777777777777777777777777777");
   const bob = getAddress("0x8888888888888888888888888888888888888888");
 
-  applyDeposit(state, {
-    onBehalf: alice,
+  applyTransfer(state, {
+    from: ZERO_ADDRESS,
+    to: alice,
     shares: 100n,
-    assets: 100n,
     block: 1,
     logIndex: 0,
   });
@@ -251,4 +258,51 @@ test("transfer follows shares so the receiver earns later fees", () => {
   assert.equal(getAccount(state, alice).updatedLogIndex, 0);
   assert.equal(getAccount(state, bob).updatedBlockNumber, 3);
   assert.equal(getAccount(state, bob).updatedLogIndex, 0);
+});
+
+test("deposit is lifetime-only and does not change balance or total supply", () => {
+  const state = emptyState();
+  const user = getAddress("0x9999999999999999999999999999999999999999");
+
+  applyDeposit(state, {
+    onBehalf: user,
+    shares: 42n,
+    assets: 42n,
+    block: 1,
+    logIndex: 0,
+  });
+
+  const account = getAccount(state, user);
+
+  assert.equal(account.balanceRaw, 0n);
+  assert.equal(account.lifetimeDepositedRaw, 42n);
+  assert.equal(account.rewardDebtRaw, 0n);
+  assert.equal(state.totalSupplyRaw, 0n);
+});
+
+test("withdraw is lifetime-only and does not change balance or total supply", () => {
+  const state = emptyState();
+  const user = getAddress("0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa");
+
+  applyTransfer(state, {
+    from: ZERO_ADDRESS,
+    to: user,
+    shares: 50n,
+    block: 1,
+    logIndex: 0,
+  });
+  applyWithdraw(state, {
+    onBehalf: user,
+    shares: 10n,
+    assets: 10n,
+    block: 2,
+    logIndex: 0,
+  });
+
+  const account = getAccount(state, user);
+
+  assert.equal(account.balanceRaw, 50n);
+  assert.equal(account.lifetimeWithdrawnRaw, 10n);
+  assert.equal(account.rewardDebtRaw, 0n);
+  assert.equal(state.totalSupplyRaw, 50n);
 });
