@@ -2,6 +2,10 @@
 
 ## 2026-07-16
 
+- Area: share-price snapshotting
+- Changed: added a periodic share-price snapshotter, a vault-total read helper on the Base RPC client, and share valuation math that floors `shares * totalAssets / totalSupply` and returns zero when supply is empty.
+- Why: the indexer now needs replayable vault share-price snapshots for USDC valuation and vault-level metrics.
+
 - Area: vault event decoding
 - Changed: expanded the Morpho Vault ABI to include `Withdraw`, `Transfer`, `AccrueInterest`, `totalAssets()`, and `totalSupply()`, and added a shared vault log decoder that normalizes deposit, withdraw, transfer, and accrue events.
 - Why: the indexer is moving beyond deposit-only ingestion toward full vault position and fee attribution processing.
