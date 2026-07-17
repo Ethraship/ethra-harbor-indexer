@@ -59,3 +59,14 @@
   - `node --import tsx --test test/vaultDb.test.ts`
   - `npm test`
   - Both passed after the scoped query landed; the full suite needed localhost escalation for the API tests to bind in the sandbox.
+
+## Second Fix
+- Tightened the `readLastPerformanceFeeMintBlock` regression test so it now uses the normal Base config as the active vault and inserts a newer nonzero accrue event for the same contract address on a different `chainId`.
+- The assertion now proves the helper ignores the newer cross-chain row and returns the Base row's block for the active config.
+
+### TDD Evidence
+- GREEN:
+  - `node --import tsx --test test/vaultDb.test.ts`
+  - Passed with all 9 `vaultDb` tests green.
+  - `npm test`
+  - Passed with all 74 tests green after rerunning with localhost escalation for the API listener.

@@ -299,20 +299,15 @@ test("readVaultState is keyed to the active vault config", () => {
 
 test("readLastPerformanceFeeMintBlock returns the latest nonzero performance fee accrue block", () => {
   const db = dbApi.openDatabase(":memory:");
-  const configA = createConfig({
-    BASE_CONTRACT_ADDRESS: "0x1111111111111111111111111111111111111111",
-  });
-  const configB = createConfig({
-    BASE_CONTRACT_ADDRESS: "0x2222222222222222222222222222222222222222",
-  });
+  const config = createConfig();
   const vaultDb = dbApi as VaultDbApi;
 
   try {
     dbApi.runMigrations(db);
 
     vaultDb.insertAccrueInterestEvent(db, {
-      chainId: configA.chainId,
-      contractAddress: configA.contractAddress,
+      chainId: config.chainId,
+      contractAddress: config.contractAddress,
       blockNumber: 48700001,
       blockHash: "0xblock-1",
       txHash: "0xtx-1",
@@ -328,10 +323,10 @@ test("readLastPerformanceFeeMintBlock returns the latest nonzero performance fee
       createdAt: 1712345600,
     });
     vaultDb.insertAccrueInterestEvent(db, {
-      chainId: configB.chainId,
-      contractAddress: configB.contractAddress,
-      blockNumber: 48700004,
-      blockHash: "0xblock-4",
+      chainId: config.chainId,
+      contractAddress: config.contractAddress,
+      blockNumber: 48700003,
+      blockHash: "0xblock-3",
       txHash: "0xtx-3",
       txIndex: 0,
       logIndex: 2,
@@ -345,10 +340,10 @@ test("readLastPerformanceFeeMintBlock returns the latest nonzero performance fee
       createdAt: 1712345601,
     });
     vaultDb.insertAccrueInterestEvent(db, {
-      chainId: 8453,
-      contractAddress: configA.contractAddress,
-      blockNumber: 48700003,
-      blockHash: "0xblock-3",
+      chainId: 8454,
+      contractAddress: config.contractAddress,
+      blockNumber: 48700004,
+      blockHash: "0xblock-4",
       txHash: "0xtx-4",
       txIndex: 1,
       logIndex: 3,
@@ -362,8 +357,7 @@ test("readLastPerformanceFeeMintBlock returns the latest nonzero performance fee
       createdAt: 1712345602,
     });
 
-    assert.equal(vaultDb.readLastPerformanceFeeMintBlock(db, configA), 48700003);
-    assert.equal(vaultDb.readLastPerformanceFeeMintBlock(db, configB), 48700004);
+    assert.equal(vaultDb.readLastPerformanceFeeMintBlock(db, config), 48700003);
   } finally {
     dbApi.closeDatabase(db);
   }
