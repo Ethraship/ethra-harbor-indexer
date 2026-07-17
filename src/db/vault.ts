@@ -665,6 +665,41 @@ export function readLatestSnapshot(db: Database.Database): Snapshot | null {
   };
 }
 
+export function readLatestSnapshotAtOrBefore(
+  db: Database.Database,
+  maxBlockNumber: number,
+): Snapshot | null {
+  const row = db.prepare(`
+    SELECT
+      id,
+      block_number,
+      total_assets_raw,
+      total_supply_raw,
+      captured_at
+    FROM share_price_snapshots
+    WHERE block_number <= ?
+    ORDER BY block_number DESC, captured_at DESC, id DESC
+    LIMIT 1
+  `).get(maxBlockNumber) as {
+    id: number;
+    block_number: number;
+    total_assets_raw: string;
+    total_supply_raw: string;
+    captured_at: number;
+  } | undefined;
+
+  if (!row) {
+    return null;
+  }
+
+  return {
+    blockNumber: row.block_number,
+    totalAssetsRaw: row.total_assets_raw,
+    totalSupplyRaw: row.total_supply_raw,
+    capturedAt: row.captured_at,
+  };
+}
+
 export function applyChunk(
   db: Database.Database,
   config: AppConfig,

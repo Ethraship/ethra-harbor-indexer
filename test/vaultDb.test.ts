@@ -40,6 +40,10 @@ type VaultDbApi = typeof dbApi & {
   ): number | null;
   insertSnapshot(db: Parameters<typeof dbApi.closeDatabase>[0], snapshot: Snapshot): void;
   readLatestSnapshot(db: Parameters<typeof dbApi.closeDatabase>[0]): Snapshot | null;
+  readLatestSnapshotAtOrBefore(
+    db: Parameters<typeof dbApi.closeDatabase>[0],
+    maxBlockNumber: number,
+  ): Snapshot | null;
   applyChunk(
     db: Parameters<typeof dbApi.closeDatabase>[0],
     config: ReturnType<typeof loadConfig>,
@@ -474,6 +478,70 @@ test("readLatestSnapshot returns null when empty and the highest block snapshot 
       totalAssetsRaw: "1200",
       totalSupplyRaw: "600",
       capturedAt: 1712345800,
+    });
+  } finally {
+    dbApi.closeDatabase(db);
+  }
+});
+
+test("readLatestSnapshotAtOrBefore returns the newest deterministic eligible snapshot", () => {
+  const db = dbApi.openDatabase(":memory:");
+  const vaultDb = dbApi as VaultDbApi;
+
+  try {
+    dbApi.runMigrations(db);
+
+    assert.equal(typeof vaultDb.readLatestSnapshotAtOrBefore, "function");
+    assert.equal(vaultDb.readLatestSnapshotAtOrBefore(db, 99), null);
+
+    vaultDb.insertSnapshot(db, {
+      blockNumber: 100,
+      totalAssetsRaw: "1000",
+      totalSupplyRaw: "500",
+      capturedAt: 1000,
+    });
+    vaultDb.insertSnapshot(db, {
+      blockNumber: 110,
+      totalAssetsRaw: "1100",
+      totalSupplyRaw: "550",
+      capturedAt: 1100,
+    });
+    vaultDb.insertSnapshot(db, {
+      blockNumber: 110,
+      totalAssetsRaw: "1150",
+      totalSupplyRaw: "575",
+      capturedAt: 1200,
+    });
+    vaultDb.insertSnapshot(db, {
+      blockNumber: 110,
+      totalAssetsRaw: "1200",
+      totalSupplyRaw: "600",
+      capturedAt: 1200,
+    });
+    vaultDb.insertSnapshot(db, {
+      blockNumber: 120,
+      totalAssetsRaw: "1300",
+      totalSupplyRaw: "650",
+      capturedAt: 1300,
+    });
+
+    assert.deepEqual(vaultDb.readLatestSnapshotAtOrBefore(db, 109), {
+      blockNumber: 100,
+      totalAssetsRaw: "1000",
+      totalSupplyRaw: "500",
+      capturedAt: 1000,
+    });
+    assert.deepEqual(vaultDb.readLatestSnapshotAtOrBefore(db, 110), {
+      blockNumber: 110,
+      totalAssetsRaw: "1200",
+      totalSupplyRaw: "600",
+      capturedAt: 1200,
+    });
+    assert.deepEqual(vaultDb.readLatestSnapshotAtOrBefore(db, 119), {
+      blockNumber: 110,
+      totalAssetsRaw: "1200",
+      totalSupplyRaw: "600",
+      capturedAt: 1200,
     });
   } finally {
     dbApi.closeDatabase(db);
