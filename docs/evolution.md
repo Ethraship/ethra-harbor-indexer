@@ -2,9 +2,17 @@
 
 ## 2026-07-17
 
+- Area: cursor-gated account and vault valuation
+- Changed: account and vault API reads now value shares with the newest snapshot at or below the persisted vault crawler cursor, retain newer head snapshots as pending, and expose observed, processed, and valuation block freshness in the vault API and dashboard.
+- Why: a head snapshot could previously observe post-fee-mint vault totals before the crawler processed the matching logs, causing a temporary estimated-net-earnings drop until the next crawl.
+
 - Area: account earnings API semantics
 - Changed: added gross lifetime earned, estimated net lifetime earned, estimated performance fee, and block freshness metadata to account metrics while preserving the existing mark-to-market `lifetimeEarned` field.
 - Why: Morpho performance-fee shares mint lazily on vault interaction, so snapshot-only mark-to-market earned can temporarily overstate user-kept earnings until the next fee mint crystallizes the split.
+
+- Area: local API dashboard earnings display
+- Changed: updated the account lookup panel to show estimated net earned, gross generated yield, estimated performance fee, crystallized fee value, performance-fee rate, and block freshness from the account API.
+- Why: operators need the dashboard to distinguish current net estimates from gross mark-to-market earnings and show how far the estimate is from the last realized fee mint.
 
 - Area: vault DB read helpers
 - Changed: added `readLastPerformanceFeeMintBlock(db, config)` to read the latest nonzero `AccrueInterest` block from `accrue_interest_events` for the active `(chain_id, contract_address)`, plus a partial SQLite index for the account-metrics lookup path and focused regression tests for vault isolation and the empty case.

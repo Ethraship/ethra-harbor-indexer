@@ -170,17 +170,29 @@ fanout writes.
 4. If a snapshot read fails, serialized error details are logged and the
    snapshotter retries on the same interval.
 
-Valuation uses the latest stored snapshot only. Share value is computed as:
+The latest stored snapshot is the newest observed head snapshot. API valuation
+uses the newest snapshot whose `block_number` is less than or equal to the
+persisted vault crawler cursor. Snapshots above the cursor remain stored but
+pending until the crawler atomically processes their blocks and advances the
+cursor.
+
+This cursor gate applies to both account and vault valuation. It guarantees that
+a valuation snapshot never runs ahead of indexed logs without coupling the
+snapshot and crawler timers. `currentBlock` reports the newest observed snapshot
+block, while `valuationBlock` reports the eligible snapshot used for financial
+values.
+
+Share value is computed as:
 
 `shares * total_assets_raw / total_supply_raw`
 
 with integer flooring, and zero when snapshot supply is zero.
 
-Account valuation helpers then combine that snapshot with local account state to
-derive mark-to-market lifetime earned, crystallized earned performance fee,
-gross generated yield, estimated net earned, and estimated performance fee at
-read time. The account API does not perform live chain reads during request
-handling.
+Account and vault valuation helpers then combine the eligible snapshot with
+local indexed state to derive share values, mark-to-market lifetime earned,
+crystallized earned performance fee, gross generated yield, estimated net
+earned, and estimated performance fee at read time. The APIs do not perform live
+chain reads during request handling.
 
 ## Scheduler Behavior
 
@@ -211,8 +223,10 @@ Endpoints:
   - `syncedToSafeHead` is `true` when the persisted cursor is at or beyond that
     latest safe head.
 - `GET /vault`
-  - Returns indexed `totalSupplyRaw`, latest snapshot `totalAssetsRaw`,
-    share-price fields, and cumulative performance-fee totals
+  - Returns indexed `totalSupplyRaw`, cursor-gated valuation
+    `totalAssetsRaw`, share-price fields, cumulative performance-fee totals,
+    newest observed block, processed crawler cursor, and valuation block
+    freshness metadata
 - `GET /accounts/:address`
   - Returns active deposit, lifetime deposit/withdraw totals, lifetime earned,
     earned performance fee, gross and estimated net earnings, estimated
@@ -223,8 +237,9 @@ create cursor or vault-state rows. Dashboard static file serving is constrained
 to a fixed asset map and is not a general-purpose file server.
 
 Account reads do not hit the chain. They derive estimated net earnings at read
-time from local SQLite state plus the latest stored snapshot and the latest fee
-mint block recorded in SQLite.
+time from local SQLite state plus the cursor-eligible valuation snapshot and the
+latest fee mint block recorded in SQLite. `blockContext.currentBlock` remains
+the newest observed snapshot block even when `valuationBlock` trails it.
 
 ## Reorg Posture
 
