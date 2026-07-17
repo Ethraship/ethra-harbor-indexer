@@ -6,6 +6,7 @@ import { loadConfig } from "../src/config";
 import {
   closeDatabase,
   getOrCreateVaultCursor,
+  insertAccrueInterestEvent,
   insertSnapshot,
   openDatabase,
   runMigrations,
@@ -181,12 +182,136 @@ test("api serves account, vault, and health metrics from indexed state", async (
     lifetimeEarned: {
       raw: "700000",
     },
+    grossLifetimeEarned: {
+      raw: "1150000",
+    },
+    estimatedNetLifetimeEarned: {
+      raw: "575000",
+      performanceFeeRateBps: "5000",
+    },
+    estimatedPerformanceFee: {
+      raw: "575000",
+    },
     earnedPerformanceFee: {
       shares: "300000000000000000",
       valueRaw: "450000",
     },
+    blockContext: {
+      currentBlock: 48700010,
+      lastProcessedLogBlock: 48578254,
+      lastPerformanceFeeMintBlock: null,
+      blocksSincePerformanceFeeMint: null,
+    },
     valuationBlock: 48700010,
     valuationTime: 1712345600,
+  });
+});
+
+test("api reports last performance fee mint freshness in account block context", async (t) => {
+  const db = openDatabase(":memory:");
+  const config = createConfig();
+  const account = "0x5555555555555555555555555555555555555555";
+  const server = createApiServer({ db, config });
+
+  t.after(async () => {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+    closeDatabase(db);
+  });
+
+  runMigrations(db);
+  getOrCreateVaultCursor(db, config);
+  db.prepare(`
+    UPDATE indexer_state
+    SET last_scanned_block = ?
+  `).run(48700008);
+  upsertVaultState(db, config, {
+    globalIndexRaw: "0",
+    totalSupplyRaw: "2000000000000000000",
+    cumulativePerfFeeSharesRaw: "0",
+    cumulativeMgmtFeeSharesRaw: "0",
+    updatedBlockNumber: 48700000,
+  });
+  upsertAccountPosition(db, {
+    address: account,
+    balanceRaw: "1000000000000000000",
+    rewardDebtRaw: "0",
+    earnedPerfFeeSharesRaw: "0",
+    lifetimeDepositedRaw: "1000000",
+    lifetimeWithdrawnRaw: "0",
+    updatedBlockNumber: 48700000,
+    updatedLogIndex: 3,
+  });
+  insertSnapshot(db, {
+    blockNumber: 48700010,
+    totalAssetsRaw: "3000302",
+    totalSupplyRaw: "2000000000000000000",
+    capturedAt: 1712345600,
+  });
+  insertAccrueInterestEvent(db, {
+    chainId: config.chainId,
+    contractAddress: config.contractAddress,
+    blockNumber: 48700004,
+    blockHash: "0xblock-4",
+    txHash: "0xtx-4",
+    txIndex: 0,
+    logIndex: 1,
+    previousTotalAssets: "3000000",
+    newTotalAssets: "3000001",
+    performanceFeeShares: "0",
+    managementFeeShares: "0",
+    totalSupplyBeforeRaw: "2000000000000000000",
+    globalIndexAfterRaw: "0",
+    rawLogJson: "{}",
+    createdAt: 1712345600,
+  });
+  insertAccrueInterestEvent(db, {
+    chainId: config.chainId,
+    contractAddress: config.contractAddress,
+    blockNumber: 48700005,
+    blockHash: "0xblock-5",
+    txHash: "0xtx-5",
+    txIndex: 0,
+    logIndex: 2,
+    previousTotalAssets: "3000001",
+    newTotalAssets: "3000002",
+    performanceFeeShares: "1",
+    managementFeeShares: "0",
+    totalSupplyBeforeRaw: "2000000000000000000",
+    globalIndexAfterRaw: "1",
+    rawLogJson: "{}",
+    createdAt: 1712345601,
+  });
+
+  const baseUrl = await startServer(server);
+  const accountRes = await fetch(`${baseUrl}/accounts/${account}`);
+
+  assert.equal(accountRes.status, 200);
+  const body = await accountRes.json();
+
+  assert.deepEqual(body.grossLifetimeEarned, {
+    raw: "500151",
+  });
+  assert.deepEqual(body.estimatedNetLifetimeEarned, {
+    raw: "250075",
+    performanceFeeRateBps: "5000",
+  });
+  assert.deepEqual(body.estimatedPerformanceFee, {
+    raw: "250076",
+  });
+  assert.deepEqual(body.blockContext, {
+    currentBlock: 48700010,
+    lastProcessedLogBlock: 48700008,
+    lastPerformanceFeeMintBlock: 48700005,
+    blocksSincePerformanceFeeMint: 5,
   });
 });
 
@@ -255,9 +380,25 @@ test("api GETs do not seed rows on a freshly migrated database", async (t) => {
     lifetimeEarned: {
       raw: null,
     },
+    grossLifetimeEarned: {
+      raw: null,
+    },
+    estimatedNetLifetimeEarned: {
+      raw: null,
+      performanceFeeRateBps: "5000",
+    },
+    estimatedPerformanceFee: {
+      raw: null,
+    },
     earnedPerformanceFee: {
       shares: "0",
       valueRaw: null,
+    },
+    blockContext: {
+      currentBlock: null,
+      lastProcessedLogBlock: null,
+      lastPerformanceFeeMintBlock: null,
+      blocksSincePerformanceFeeMint: null,
     },
     valuationBlock: null,
     valuationTime: null,
@@ -329,9 +470,25 @@ test("api returns zeros for unknown accounts and 400 for invalid addresses", asy
     lifetimeEarned: {
       raw: "0",
     },
+    grossLifetimeEarned: {
+      raw: "0",
+    },
+    estimatedNetLifetimeEarned: {
+      raw: "0",
+      performanceFeeRateBps: "5000",
+    },
+    estimatedPerformanceFee: {
+      raw: "0",
+    },
     earnedPerformanceFee: {
       shares: "0",
       valueRaw: "0",
+    },
+    blockContext: {
+      currentBlock: 48700010,
+      lastProcessedLogBlock: 48578254,
+      lastPerformanceFeeMintBlock: null,
+      blocksSincePerformanceFeeMint: null,
     },
     valuationBlock: 48700010,
     valuationTime: 1712345600,
@@ -403,9 +560,25 @@ test("api returns raw metrics with null valuation fields when no snapshot exists
     lifetimeEarned: {
       raw: null,
     },
+    grossLifetimeEarned: {
+      raw: null,
+    },
+    estimatedNetLifetimeEarned: {
+      raw: null,
+      performanceFeeRateBps: "5000",
+    },
+    estimatedPerformanceFee: {
+      raw: null,
+    },
     earnedPerformanceFee: {
       shares: "60000000000000000",
       valueRaw: null,
+    },
+    blockContext: {
+      currentBlock: null,
+      lastProcessedLogBlock: 48578254,
+      lastPerformanceFeeMintBlock: null,
+      blocksSincePerformanceFeeMint: null,
     },
     valuationBlock: null,
     valuationTime: null,

@@ -3,11 +3,16 @@ import type Database from "better-sqlite3";
 import type { AppConfig } from "../config";
 import {
   readAccountPosition,
+  readLastPerformanceFeeMintBlock,
   readLatestSnapshot,
+  readVaultCursor,
   readVaultStateSnapshot,
 } from "../db";
 import { settle, type AccountLedger, SCALE } from "../indexer/ledger";
 import { valueOfShares } from "../snapshot/sharePrice";
+
+const PERFORMANCE_FEE_RATE_BPS = 5000n;
+const BPS_SCALE = 10000n;
 
 export interface AccountMetricsResponse {
   address: string;
@@ -24,9 +29,25 @@ export interface AccountMetricsResponse {
   lifetimeEarned: {
     raw: string | null;
   };
+  grossLifetimeEarned: {
+    raw: string | null;
+  };
+  estimatedNetLifetimeEarned: {
+    raw: string | null;
+    performanceFeeRateBps: string;
+  };
+  estimatedPerformanceFee: {
+    raw: string | null;
+  };
   earnedPerformanceFee: {
     shares: string;
     valueRaw: string | null;
+  };
+  blockContext: {
+    currentBlock: number | null;
+    lastProcessedLogBlock: number | null;
+    lastPerformanceFeeMintBlock: number | null;
+    blocksSincePerformanceFeeMint: number | null;
   };
   valuationBlock: number | null;
   valuationTime: number | null;
@@ -56,11 +77,29 @@ function toAccountLedger(position: ReturnType<typeof readAccountPosition>): Acco
   };
 }
 
+function blockContext(
+  currentBlock: number | null,
+  lastProcessedLogBlock: number | null,
+  lastPerformanceFeeMintBlock: number | null,
+): AccountMetricsResponse["blockContext"] {
+  return {
+    currentBlock,
+    lastProcessedLogBlock,
+    lastPerformanceFeeMintBlock,
+    blocksSincePerformanceFeeMint:
+      currentBlock !== null && lastPerformanceFeeMintBlock !== null
+        ? currentBlock - lastPerformanceFeeMintBlock
+        : null,
+  };
+}
+
 export function getAccountMetrics(
   db: Database.Database,
   config: AppConfig,
   address: string,
 ): AccountMetricsResponse {
+  const lastProcessedLogBlock = readVaultCursor(db, config);
+  const lastPerformanceFeeMintBlock = readLastPerformanceFeeMintBlock(db, config);
   const position = readAccountPosition(db, address);
   const vaultState = readVaultStateSnapshot(db, config);
   const snapshot = readLatestSnapshot(db);
@@ -84,10 +123,21 @@ export function getAccountMetrics(
       lifetimeEarned: {
         raw: null,
       },
+      grossLifetimeEarned: {
+        raw: null,
+      },
+      estimatedNetLifetimeEarned: {
+        raw: null,
+        performanceFeeRateBps: PERFORMANCE_FEE_RATE_BPS.toString(),
+      },
+      estimatedPerformanceFee: {
+        raw: null,
+      },
       earnedPerformanceFee: {
         shares: account.earnedPerfFeeSharesRaw.toString(),
         valueRaw: null,
       },
+      blockContext: blockContext(null, lastProcessedLogBlock, lastPerformanceFeeMintBlock),
       valuationBlock: null,
       valuationTime: null,
     };
@@ -96,7 +146,12 @@ export function getAccountMetrics(
   const activeDepositValue = valueOfShares(account.balanceRaw, snapshot);
   const lifetimeEarned =
     activeDepositValue + account.lifetimeWithdrawnRaw - account.lifetimeDepositedRaw;
+  const netLifetimeEarned = lifetimeEarned > 0n ? lifetimeEarned : 0n;
   const performanceFeeValue = valueOfShares(account.earnedPerfFeeSharesRaw, snapshot);
+  const grossLifetimeEarned = netLifetimeEarned + performanceFeeValue;
+  const estimatedNetLifetimeEarned =
+    (grossLifetimeEarned * (BPS_SCALE - PERFORMANCE_FEE_RATE_BPS)) / BPS_SCALE;
+  const estimatedPerformanceFee = grossLifetimeEarned - estimatedNetLifetimeEarned;
 
   return {
     address: position.address,
@@ -111,12 +166,27 @@ export function getAccountMetrics(
       raw: account.lifetimeWithdrawnRaw.toString(),
     },
     lifetimeEarned: {
-      raw: (lifetimeEarned > 0n ? lifetimeEarned : 0n).toString(),
+      raw: netLifetimeEarned.toString(),
+    },
+    grossLifetimeEarned: {
+      raw: grossLifetimeEarned.toString(),
+    },
+    estimatedNetLifetimeEarned: {
+      raw: estimatedNetLifetimeEarned.toString(),
+      performanceFeeRateBps: PERFORMANCE_FEE_RATE_BPS.toString(),
+    },
+    estimatedPerformanceFee: {
+      raw: estimatedPerformanceFee.toString(),
     },
     earnedPerformanceFee: {
       shares: account.earnedPerfFeeSharesRaw.toString(),
       valueRaw: performanceFeeValue.toString(),
     },
+    blockContext: blockContext(
+      snapshot.blockNumber,
+      lastProcessedLogBlock,
+      lastPerformanceFeeMintBlock,
+    ),
     valuationBlock: snapshot.blockNumber,
     valuationTime: snapshot.capturedAt,
   };
