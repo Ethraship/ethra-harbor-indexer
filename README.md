@@ -6,7 +6,8 @@ Morpho Vault V2-style contract at
 
 It crawls deterministic on-chain vault activity over HTTP JSON-RPC, stores
 replayable SQLite state, periodically snapshots vault valuation, and exposes a
-read-only HTTP API keyed only by wallet address.
+read-only HTTP API keyed only by wallet address. The same server also ships a
+small local dashboard for inspecting those read-only routes in a browser.
 
 ## What It Indexes
 
@@ -62,6 +63,8 @@ npm install
 npm run dev
 ```
 
+Then open `http://127.0.0.1:8080/dashboard` for the local dashboard.
+
 For production-style runs:
 
 ```bash
@@ -96,8 +99,11 @@ the trimmed entries are appended in order and used as explicit fallbacks for
 
 ## API
 
-The API is read-only and serves JSON over built-in `node:http`.
+The API is read-only and serves JSON plus a local static dashboard over built-in
+`node:http`.
 
+- `GET /dashboard`
+  - Serves a browser dashboard for health, vault metrics, and account lookup
 - `GET /health`
   - Returns `{ status, cursorBlock, safeHead, safeHeadKnown, syncedToSafeHead }`
 - `GET /vault`

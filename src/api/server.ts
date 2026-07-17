@@ -1,4 +1,6 @@
 import http from "node:http";
+import { readFileSync } from "node:fs";
+import { join } from "node:path";
 
 import { getAddress } from "ethers";
 import type Database from "better-sqlite3";
@@ -6,6 +8,38 @@ import type Database from "better-sqlite3";
 import type { AppConfig } from "../config";
 import { readVaultCursor } from "../db";
 import { getAccountMetrics, getVaultMetrics } from "./queries";
+
+const DASHBOARD_ROOT = join(process.cwd(), "public");
+const DASHBOARD_ASSETS = new Map<string, { fileName: string; contentType: string }>([
+  [
+    "/dashboard",
+    {
+      fileName: "dashboard.html",
+      contentType: "text/html; charset=utf-8",
+    },
+  ],
+  [
+    "/dashboard/",
+    {
+      fileName: "dashboard.html",
+      contentType: "text/html; charset=utf-8",
+    },
+  ],
+  [
+    "/dashboard/styles.css",
+    {
+      fileName: "dashboard.css",
+      contentType: "text/css; charset=utf-8",
+    },
+  ],
+  [
+    "/dashboard/app.js",
+    {
+      fileName: "dashboard.js",
+      contentType: "text/javascript; charset=utf-8",
+    },
+  ],
+]);
 
 export interface ApiServerDependencies {
   db: Database.Database;
@@ -25,6 +59,31 @@ function writeJson(
   response.end(JSON.stringify(body));
 }
 
+function writeText(
+  response: http.ServerResponse,
+  statusCode: number,
+  contentType: string,
+  body: string,
+): void {
+  response.statusCode = statusCode;
+  response.setHeader("Content-Type", contentType);
+  response.end(body);
+}
+
+function tryWriteDashboardAsset(
+  response: http.ServerResponse,
+  pathname: string,
+): boolean {
+  const asset = DASHBOARD_ASSETS.get(pathname);
+  if (!asset) {
+    return false;
+  }
+
+  const body = readFileSync(join(DASHBOARD_ROOT, asset.fileName), "utf8");
+  writeText(response, 200, asset.contentType, body);
+  return true;
+}
+
 export function createApiServer(dependencies: ApiServerDependencies): http.Server {
   const { db, config, health } = dependencies;
 
@@ -38,6 +97,10 @@ export function createApiServer(dependencies: ApiServerDependencies): http.Serve
 
     if (request.method !== "GET") {
       writeJson(response, 404, { error: "not found" });
+      return;
+    }
+
+    if (tryWriteDashboardAsset(response, url.pathname)) {
       return;
     }
 

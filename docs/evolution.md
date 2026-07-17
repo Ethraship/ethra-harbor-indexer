@@ -2,6 +2,10 @@
 
 ## 2026-07-17
 
+- Area: local API dashboard
+- Changed: added a static `/dashboard` page served by the existing HTTP API server, with health, vault, and address lookup panels backed by the read-only JSON routes.
+- Why: operators need a quick browser view of indexed state without curl commands or a separate frontend stack.
+
 - Area: API health reporting
 - Changed: `/health` now returns the crawler's latest observed `safeHead`, keeps `safeHeadKnown` as a real runtime flag, and adds `syncedToSafeHead` when the persisted cursor has reached that safe head.
 - Why: operators need health output to match crawler logs and show when the indexer is caught up to the confirmed chain head.

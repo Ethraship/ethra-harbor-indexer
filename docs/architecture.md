@@ -8,10 +8,11 @@ Last updated: 2026-07-17
 - Chain client: `ethers`
 - Database: SQLite via `better-sqlite3`
 - HTTP API: built-in `node:http`
+- Local dashboard: static HTML/CSS/JavaScript served by `node:http`
 - Tests: `node:test` with `tsx`
 
-This is a backend-only service. It does not include frontend, mobile, wallet
-UX, or user-profile systems.
+This is a backend service with a bundled read-only local dashboard. It does not
+include a separate frontend app, mobile, wallet UX, or user-profile systems.
 
 ## Layers
 
@@ -40,6 +41,7 @@ UX, or user-profile systems.
 7. `src/api/`
    - Serves read-only JSON responses for health, vault metrics, and per-address
      metrics without mutating database state.
+   - Serves known static dashboard assets from `public/` at `/dashboard`.
 8. `src/index.ts`
    - Bootstraps config, DB, provider, crawler, snapshotter, optional API
      server, and graceful shutdown wiring.
@@ -58,6 +60,8 @@ UX, or user-profile systems.
 - Process boundary:
   - The HTTP API is read-only. It does not write to DB, mutate cursors, or hit
     RPC on request paths.
+  - The dashboard is static browser code. It calls the same read-only API routes
+    and has no direct SQLite or RPC access.
 
 ## Database Ownership
 
@@ -189,6 +193,10 @@ The API is optional (`API_ENABLED`) and listens on `API_PORT` when enabled.
 
 Endpoints:
 
+- `GET /dashboard`
+  - Serves the local HTML dashboard.
+  - The dashboard loads `/dashboard/styles.css` and `/dashboard/app.js`, then
+    calls `/health`, `/vault`, and `/accounts/:address` from the browser.
 - `GET /health`
   - Returns process-readiness style metadata:
     `{ status, cursorBlock, safeHead, safeHeadKnown, syncedToSafeHead }`
@@ -204,7 +212,8 @@ Endpoints:
     earned performance fee, and valuation metadata
 
 API queries are read-only and intentionally avoid the mutating helpers that
-create cursor or vault-state rows.
+create cursor or vault-state rows. Dashboard static file serving is constrained
+to a fixed asset map and is not a general-purpose file server.
 
 ## Reorg Posture
 

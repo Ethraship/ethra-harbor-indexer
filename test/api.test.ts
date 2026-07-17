@@ -32,6 +32,57 @@ async function startServer(server: ReturnType<typeof createApiServer>): Promise<
   return `http://127.0.0.1:${address.port}`;
 }
 
+test("api serves the dashboard shell and static assets", async (t) => {
+  const db = openDatabase(":memory:");
+  const config = createConfig();
+  const server = createApiServer({ db, config });
+
+  t.after(async () => {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+    closeDatabase(db);
+  });
+
+  runMigrations(db);
+
+  const baseUrl = await startServer(server);
+  const [dashboardRes, dashboardSlashRes, cssRes, jsRes, missingRes] =
+    await Promise.all([
+      fetch(`${baseUrl}/dashboard`),
+      fetch(`${baseUrl}/dashboard/`),
+      fetch(`${baseUrl}/dashboard/styles.css`),
+      fetch(`${baseUrl}/dashboard/app.js`),
+      fetch(`${baseUrl}/dashboard/missing.js`),
+    ]);
+
+  assert.equal(dashboardRes.status, 200);
+  assert.equal(dashboardSlashRes.status, 200);
+  assert.equal(cssRes.status, 200);
+  assert.equal(jsRes.status, 200);
+  assert.equal(missingRes.status, 404);
+
+  assert.match(dashboardRes.headers.get("content-type") ?? "", /^text\/html/);
+  assert.match(cssRes.headers.get("content-type") ?? "", /^text\/css/);
+  assert.match(jsRes.headers.get("content-type") ?? "", /^text\/javascript/);
+
+  const html = await dashboardRes.text();
+  assert.match(html, /Ethra Harbor Dashboard/);
+  assert.match(html, /\/dashboard\/styles\.css/);
+  assert.match(html, /\/dashboard\/app\.js/);
+
+  assert.deepEqual(await missingRes.json(), {
+    error: "not found",
+  });
+});
+
 test("api serves account, vault, and health metrics from indexed state", async (t) => {
   const db = openDatabase(":memory:");
   const config = createConfig();

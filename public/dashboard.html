@@ -1,0 +1,83 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Ethra Harbor Dashboard</title>
+    <link rel="stylesheet" href="/dashboard/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="label">Base Morpho Vault V2</p>
+          <h1>Ethra Harbor Dashboard</h1>
+        </div>
+        <button class="button button-secondary" id="refresh-overview" type="button">
+          Refresh
+        </button>
+      </header>
+
+      <section class="status-strip" aria-live="polite">
+        <div class="status-left">
+          <span class="status-dot" id="health-dot"></span>
+          <span id="health-summary">Loading health</span>
+        </div>
+        <span id="last-refresh">Waiting for first refresh</span>
+      </section>
+
+      <section class="grid grid-two">
+        <article class="panel">
+          <div class="panel-heading">
+            <h2>Indexer Health</h2>
+            <span class="pill" id="health-pill">Loading</span>
+          </div>
+          <div class="metric-list" id="health-metrics"></div>
+          <p class="error-text" id="health-error" hidden></p>
+        </article>
+
+        <article class="panel">
+          <div class="panel-heading">
+            <h2>Vault Metrics</h2>
+            <span class="pill" id="vault-pill">Loading</span>
+          </div>
+          <div class="metric-list" id="vault-metrics"></div>
+          <p class="error-text" id="vault-error" hidden></p>
+        </article>
+      </section>
+
+      <section class="panel account-panel">
+        <div class="panel-heading account-heading">
+          <div>
+            <h2>Account Lookup</h2>
+            <p class="panel-copy">Indexed wallet metrics from the account API.</p>
+          </div>
+          <span class="pill pill-muted" id="account-pill">Idle</span>
+        </div>
+
+        <form class="lookup-form" id="lookup-form">
+          <label for="address-input">Wallet address</label>
+          <div class="lookup-row">
+            <input
+              id="address-input"
+              name="address"
+              type="text"
+              inputmode="text"
+              autocomplete="off"
+              spellcheck="false"
+              placeholder="0x..."
+            >
+            <button class="button" id="lookup-button" type="submit">Get Details</button>
+          </div>
+          <p class="error-text" id="account-error" hidden></p>
+        </form>
+
+        <div class="empty-state" id="account-empty">
+          No account selected.
+        </div>
+        <div class="account-results" id="account-results" hidden></div>
+      </section>
+    </main>
+    <script src="/dashboard/app.js" defer></script>
+  </body>
+</html>
