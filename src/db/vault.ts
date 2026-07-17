@@ -601,14 +601,19 @@ export function insertAccrueInterestEvent(
 
 export function readLastPerformanceFeeMintBlock(
   db: Database.Database,
+  config: AppConfig,
 ): number | null {
   const row = db.prepare(`
     SELECT block_number
     FROM accrue_interest_events
-    WHERE performance_fee_shares != '0'
+    WHERE chain_id = ?
+      AND contract_address = ?
+      AND performance_fee_shares != '0'
     ORDER BY block_number DESC, tx_index DESC, log_index DESC
     LIMIT 1
-  `).get() as { block_number: number } | undefined;
+  `).get(config.chainId, config.contractAddress) as
+    | { block_number: number }
+    | undefined;
 
   return row ? row.block_number : null;
 }

@@ -3,7 +3,7 @@
 ## 2026-07-17
 
 - Area: vault DB read helpers
-- Changed: added `readLastPerformanceFeeMintBlock(db)` to read the latest nonzero `AccrueInterest` block from `accrue_interest_events`, with focused regression tests for the newest minted block and the empty case.
+- Changed: added `readLastPerformanceFeeMintBlock(db, config)` to read the latest nonzero `AccrueInterest` block from `accrue_interest_events` for the active `(chain_id, contract_address)`, with focused regression tests for vault isolation and the empty case.
 - Why: the estimated net earnings read-model needs a fast way to know when performance fees were last crystallized without changing indexed state.
 
 - Area: local API dashboard

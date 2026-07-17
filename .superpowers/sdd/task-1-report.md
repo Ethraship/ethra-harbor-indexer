@@ -1,8 +1,8 @@
 # Task 1 Report: Last Performance-Fee Mint Block Helper
 
 ## What I implemented
-- Added `readLastPerformanceFeeMintBlock(db): number | null` in `src/db/vault.ts`.
-- The helper reads the latest `accrue_interest_events` row with `performance_fee_shares != '0'`.
+- Added `readLastPerformanceFeeMintBlock(db, config): number | null` in `src/db/vault.ts`.
+- The helper reads the latest `accrue_interest_events` row with `performance_fee_shares != '0'` for the active vault.
 - Ordering is deterministic by `block_number DESC, tx_index DESC, log_index DESC`.
 - Added focused DB tests in `test/vaultDb.test.ts` for:
   - returning the latest nonzero performance-fee mint block
@@ -46,3 +46,16 @@
 ## Concerns
 - `src/db/index.ts` did not need a functional change because the existing barrel export already re-exports `src/db/vault.ts`.
 - I left unrelated untracked files in the worktree untouched.
+
+## Fix
+- Updated `readLastPerformanceFeeMintBlock` to accept `config` and filter by the active vault's `(chain_id, contract_address)` before selecting the latest nonzero `performance_fee_shares` row.
+- Expanded `test/vaultDb.test.ts` with cross-vault coverage so vault A ignores a newer mint from vault B and the null case stays scoped as well.
+
+### TDD Evidence
+- RED:
+  - `node --import tsx --test test/vaultDb.test.ts`
+  - Failed as expected when the active-vault test saw the wrong block from the other vault.
+- GREEN:
+  - `node --import tsx --test test/vaultDb.test.ts`
+  - `npm test`
+  - Both passed after the scoped query landed; the full suite needed localhost escalation for the API tests to bind in the sandbox.
