@@ -117,6 +117,20 @@ const MIGRATIONS = [
     CREATE INDEX IF NOT EXISTS idx_snapshots_block ON share_price_snapshots(block_number);
   `,
   },
+  {
+    name: "003_accrue_interest_perf_fee_index",
+    sql: `
+    CREATE INDEX IF NOT EXISTS idx_accrue_perf_fee_latest
+      ON accrue_interest_events(
+        chain_id,
+        contract_address,
+        block_number DESC,
+        tx_index DESC,
+        log_index DESC
+      )
+      WHERE performance_fee_shares != '0';
+  `,
+  },
 ] as const;
 
 const RESET_REQUIRED_ERROR =

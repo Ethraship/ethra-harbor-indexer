@@ -85,6 +85,11 @@ test("openDatabase creates parent directories and runMigrations creates the expe
     const indexes = db.prepare(
       "SELECT name FROM sqlite_master WHERE type = 'index' ORDER BY name",
     ).all() as Array<{ name: string }>;
+    const performanceFeeIndex = db.prepare(`
+      SELECT name, sql
+      FROM sqlite_master
+      WHERE type = 'index' AND name = 'idx_accrue_perf_fee_latest'
+    `).get() as { name: string; sql: string } | undefined;
     const depositColumns = db.prepare(
       "PRAGMA table_info(deposit_events)",
     ).all() as Array<{ name: string }>;
@@ -112,11 +117,17 @@ test("openDatabase creates parent directories and runMigrations creates the expe
         .map((row) => row.name)
         .filter((name) => name.startsWith("idx_")),
       [
+        "idx_accrue_perf_fee_latest",
         "idx_deposit_events_block",
         "idx_snapshots_block",
         "idx_transfer_events_block",
         "idx_withdraw_events_block",
       ],
+    );
+    assert.equal(performanceFeeIndex?.name, "idx_accrue_perf_fee_latest");
+    assert.equal(
+      performanceFeeIndex?.sql.replace(/\s+/g, " ").trim(),
+      "CREATE INDEX idx_accrue_perf_fee_latest ON accrue_interest_events( chain_id, contract_address, block_number DESC, tx_index DESC, log_index DESC ) WHERE performance_fee_shares != '0'",
     );
     assert.deepEqual(
       depositColumns.map((column) => column.name),

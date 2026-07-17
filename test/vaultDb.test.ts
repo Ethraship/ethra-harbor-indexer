@@ -148,6 +148,7 @@ test("runMigrations creates the vault schema without changing deposit_events", (
         .map((row) => row.name)
         .filter((name) => name.startsWith("idx_")),
       [
+        "idx_accrue_perf_fee_latest",
         "idx_deposit_events_block",
         "idx_snapshots_block",
         "idx_transfer_events_block",
@@ -297,7 +298,7 @@ test("readVaultState is keyed to the active vault config", () => {
   }
 });
 
-test("readLastPerformanceFeeMintBlock returns the latest nonzero performance fee accrue block", () => {
+test("readLastPerformanceFeeMintBlock ignores newer nonzero accruals for other contracts on the same chain", () => {
   const db = dbApi.openDatabase(":memory:");
   const config = createConfig();
   const vaultDb = dbApi as VaultDbApi;
@@ -355,6 +356,23 @@ test("readLastPerformanceFeeMintBlock returns the latest nonzero performance fee
       globalIndexAfterRaw: "40",
       rawLogJson: "{}",
       createdAt: 1712345602,
+    });
+    vaultDb.insertAccrueInterestEvent(db, {
+      chainId: config.chainId,
+      contractAddress: "0x1111111111111111111111111111111111111111",
+      blockNumber: 48700005,
+      blockHash: "0xblock-5",
+      txHash: "0xtx-5",
+      txIndex: 0,
+      logIndex: 4,
+      previousTotalAssets: "1000003",
+      newTotalAssets: "1000004",
+      performanceFeeShares: "35",
+      managementFeeShares: "0",
+      totalSupplyBeforeRaw: "1000000000000000000",
+      globalIndexAfterRaw: "75",
+      rawLogJson: "{}",
+      createdAt: 1712345603,
     });
 
     assert.equal(vaultDb.readLastPerformanceFeeMintBlock(db, config), 48700003);

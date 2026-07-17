@@ -7,8 +7,8 @@
 - Why: Morpho performance-fee shares mint lazily on vault interaction, so snapshot-only mark-to-market earned can temporarily overstate user-kept earnings until the next fee mint crystallizes the split.
 
 - Area: vault DB read helpers
-- Changed: added `readLastPerformanceFeeMintBlock(db, config)` to read the latest nonzero `AccrueInterest` block from `accrue_interest_events` for the active `(chain_id, contract_address)`, with focused regression tests for vault isolation and the empty case.
-- Why: the estimated net earnings read-model needs a fast way to know when performance fees were last crystallized without changing indexed state.
+- Changed: added `readLastPerformanceFeeMintBlock(db, config)` to read the latest nonzero `AccrueInterest` block from `accrue_interest_events` for the active `(chain_id, contract_address)`, plus a partial SQLite index for the account-metrics lookup path and focused regression tests for vault isolation and the empty case.
+- Why: the estimated net earnings read-model needs a fast active-vault query path for crystallized performance-fee lookups without changing indexed state.
 
 - Area: local API dashboard
 - Changed: added a static `/dashboard` page served by the existing HTTP API server, with health, vault, and address lookup panels backed by the read-only JSON routes.

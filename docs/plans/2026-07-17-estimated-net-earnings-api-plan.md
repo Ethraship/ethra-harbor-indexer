@@ -37,9 +37,9 @@
 
 **Interfaces:**
 - Consumes: existing `accrue_interest_events` rows and existing db export barrel.
-- Produces: `readLastPerformanceFeeMintBlock(db: Database.Database): number | null`.
+- Produces: `readLastPerformanceFeeMintBlock(db: Database.Database, config: AppConfig): number | null`.
 
-- [ ] **Step 1: Write the failing test**
+- [x] **Step 1: Write the failing test**
 
 Add this test near the other vault DB read helper tests in `test/vaultDb.test.ts`:
 
@@ -102,7 +102,7 @@ test("readLastPerformanceFeeMintBlock returns the latest nonzero performance fee
       createdAt: 1712345602,
     });
 
-    assert.equal(vaultDb.readLastPerformanceFeeMintBlock(db), 48700003);
+    assert.equal(vaultDb.readLastPerformanceFeeMintBlock(db, config), 48700003);
   } finally {
     closeDatabase(db);
   }
@@ -132,14 +132,14 @@ test("readLastPerformanceFeeMintBlock returns null when no nonzero performance f
       createdAt: 1712345600,
     });
 
-    assert.equal(vaultDb.readLastPerformanceFeeMintBlock(db), null);
+    assert.equal(vaultDb.readLastPerformanceFeeMintBlock(db, config), null);
   } finally {
     closeDatabase(db);
   }
 });
 ```
 
-- [ ] **Step 2: Run the focused test to verify it fails**
+- [x] **Step 2: Run the focused test to verify it fails**
 
 Run:
 
@@ -149,27 +149,44 @@ node --import tsx --test test/vaultDb.test.ts
 
 Expected: FAIL because `vaultDb.readLastPerformanceFeeMintBlock` is not defined.
 
-- [ ] **Step 3: Implement the minimal database helper**
+- [x] **Step 3: Implement the minimal database helper**
 
-In `src/db/vault.ts`, add:
+In `src/db/vault.ts`, add the scoped helper and in `src/db/index.ts` add the supporting partial SQLite index:
 
 ```ts
-export function readLastPerformanceFeeMintBlock(db: Database.Database): number | null {
+export function readLastPerformanceFeeMintBlock(
+  db: Database.Database,
+  config: AppConfig,
+): number | null {
   const row = db.prepare(`
     SELECT block_number
     FROM accrue_interest_events
-    WHERE performance_fee_shares != '0'
+    WHERE chain_id = ?
+      AND contract_address = ?
+      AND performance_fee_shares != '0'
     ORDER BY block_number DESC, tx_index DESC, log_index DESC
     LIMIT 1
-  `).get() as { block_number: number } | undefined;
+  `).get(config.chainId, config.contractAddress) as { block_number: number } | undefined;
 
   return row ? row.block_number : null;
 }
 ```
 
-Ensure `src/db/index.ts` still exports it via the existing vault export pattern.
+Add:
 
-- [ ] **Step 4: Run the focused test to verify it passes**
+```sql
+CREATE INDEX IF NOT EXISTS idx_accrue_perf_fee_latest
+ON accrue_interest_events (
+  chain_id,
+  contract_address,
+  block_number DESC,
+  tx_index DESC,
+  log_index DESC
+)
+WHERE performance_fee_shares != '0';
+```
+
+- [x] **Step 4: Run the focused test to verify it passes**
 
 Run:
 
@@ -179,7 +196,7 @@ node --import tsx --test test/vaultDb.test.ts
 
 Expected: PASS.
 
-- [ ] **Step 5: Run the full suite**
+- [x] **Step 5: Run the full suite**
 
 Run:
 
@@ -189,7 +206,7 @@ npm test
 
 Expected: PASS. If the sandbox blocks local API server tests with `listen EPERM`, rerun the same command with the allowed localhost escalation.
 
-- [ ] **Step 6: Commit**
+- [x] **Step 6: Commit**
 
 ```bash
 git add src/db/vault.ts src/db/index.ts test/vaultDb.test.ts
@@ -205,10 +222,10 @@ git commit -m "feat: expose last performance fee mint block"
 - Test: `test/api.test.ts`
 
 **Interfaces:**
-- Consumes: `readLastPerformanceFeeMintBlock(db)`, `readVaultCursor(db, config)`, existing `readAccountPosition`, `readVaultStateSnapshot`, and `readLatestSnapshot`.
+- Consumes: `readLastPerformanceFeeMintBlock(db, config)`, `readVaultCursor(db, config)`, existing `readAccountPosition`, `readVaultStateSnapshot`, and `readLatestSnapshot`.
 - Produces: extended `AccountMetricsResponse` with `grossLifetimeEarned`, `estimatedNetLifetimeEarned`, `estimatedPerformanceFee`, and `blockContext`.
 
-- [ ] **Step 1: Write the failing account API test for estimated values and block context**
+- [x] **Step 1: Write the failing account API test for estimated values and block context**
 
 Update the expected `/accounts/:known` body in `test/api.test.ts` test `"api serves account, vault, and health metrics from indexed state"` to include:
 
@@ -345,7 +362,7 @@ test("api reports last performance fee mint freshness in account block context",
 
 Also import `insertAccrueInterestEvent` from `../src/db`.
 
-- [ ] **Step 2: Write the failing no-snapshot expectation**
+- [x] **Step 2: Write the failing no-snapshot expectation**
 
 Update the expected body in `"api returns raw metrics with null valuation fields when no snapshot exists"` to include:
 
@@ -368,7 +385,7 @@ blockContext: {
 },
 ```
 
-- [ ] **Step 3: Run the focused test to verify it fails**
+- [x] **Step 3: Run the focused test to verify it fails**
 
 Run:
 
@@ -378,7 +395,7 @@ node --import tsx --test test/api.test.ts
 
 Expected: FAIL because the new account response fields are missing.
 
-- [ ] **Step 4: Implement the API response fields**
+- [x] **Step 4: Implement the API response fields**
 
 In `src/api/queries.ts`:
 
@@ -435,7 +452,7 @@ function blockContext(
 
 ```ts
 const lastProcessedLogBlock = readVaultCursor(db, config);
-const lastPerformanceFeeMintBlock = readLastPerformanceFeeMintBlock(db);
+const lastPerformanceFeeMintBlock = readLastPerformanceFeeMintBlock(db, config);
 ```
 
 6. In the no-snapshot return, include null derived raw fields and `blockContext(null, lastProcessedLogBlock, lastPerformanceFeeMintBlock)`.
@@ -453,7 +470,7 @@ const estimatedPerformanceFee = grossLifetimeEarned - estimatedNetLifetimeEarned
 
 Return those values as strings.
 
-- [ ] **Step 5: Run the focused test to verify it passes**
+- [x] **Step 5: Run the focused test to verify it passes**
 
 Run:
 
@@ -463,7 +480,7 @@ node --import tsx --test test/api.test.ts
 
 Expected: PASS. If the sandbox blocks local API server tests with `listen EPERM`, rerun the same command with the allowed localhost escalation.
 
-- [ ] **Step 6: Run the full suite**
+- [x] **Step 6: Run the full suite**
 
 Run:
 
@@ -473,7 +490,7 @@ npm test
 
 Expected: PASS. If the sandbox blocks local API server tests with `listen EPERM`, rerun the same command with the allowed localhost escalation.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add src/api/queries.ts test/api.test.ts
@@ -495,7 +512,7 @@ git commit -m "feat: add estimated net account earnings"
 - Consumes: API response fields from Task 2.
 - Produces: updated user and architecture docs, plus this saved complete plan marked as executed.
 
-- [ ] **Step 1: Update README API semantics**
+- [x] **Step 1: Update README API semantics**
 
 In `README.md`, revise the per-address metrics section so it distinguishes:
 
@@ -508,15 +525,15 @@ In `README.md`, revise the per-address metrics section so it distinguishes:
 
 State that the estimate assumes the current single-vault performance fee rate of `5000` bps.
 
-- [ ] **Step 2: Update product overview**
+- [x] **Step 2: Update product overview**
 
 In `docs/overview.md`, update the "For each wallet address" bullets to include estimated net earnings and freshness metadata. Keep the backend-only scope unchanged.
 
-- [ ] **Step 3: Update architecture docs**
+- [x] **Step 3: Update architecture docs**
 
 In `docs/architecture.md`, update the API and valuation sections to say account reads derive estimated net earnings at read time from local SQLite state and the latest snapshot. Document that the API does not hit the chain during account reads.
 
-- [ ] **Step 4: Append evolution entry**
+- [x] **Step 4: Append evolution entry**
 
 Append this entry to `docs/evolution.md` with date `2026-07-17`:
 
@@ -532,7 +549,7 @@ Append this entry to `docs/evolution.md` with date `2026-07-17`:
 
 This plan was saved at `docs/plans/2026-07-17-estimated-net-earnings-api-plan.md` before implementation and updated during the docs task after implementation.
 
-- [ ] **Step 6: Run documentation-safe verification**
+- [x] **Step 6: Run documentation-safe verification**
 
 Run:
 
@@ -542,7 +559,7 @@ npm run build
 
 Expected: PASS.
 
-- [ ] **Step 7: Commit**
+- [x] **Step 7: Commit**
 
 ```bash
 git add README.md docs/overview.md docs/architecture.md docs/evolution.md docs/plans/2026-07-17-estimated-net-earnings-api-plan.md
