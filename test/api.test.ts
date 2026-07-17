@@ -431,6 +431,97 @@ test("api promotes one cursor-eligible snapshot for account and vault valuation"
   assert.equal(promotedVault.valuationBlock, 48700120);
 });
 
+test("api reports observed freshness but null valuation when only pending snapshots exist", async (t) => {
+  const db = openDatabase(":memory:");
+  const config = createConfig();
+  const account = "0x7777777777777777777777777777777777777777";
+  const server = createApiServer({ db, config });
+
+  t.after(async () => {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+    closeDatabase(db);
+  });
+
+  runMigrations(db);
+  getOrCreateVaultCursor(db, config);
+  db.prepare(`
+    UPDATE indexer_state
+    SET last_scanned_block = ?
+  `).run(48700110);
+  upsertVaultState(db, config, {
+    globalIndexRaw: "0",
+    totalSupplyRaw: "1000000000000000000",
+    cumulativePerfFeeSharesRaw: "100000000000000000",
+    cumulativeMgmtFeeSharesRaw: "0",
+    updatedBlockNumber: 48700110,
+  });
+  upsertAccountPosition(db, {
+    address: account,
+    balanceRaw: "1000000000000000000",
+    rewardDebtRaw: "0",
+    earnedPerfFeeSharesRaw: "100000000000000000",
+    lifetimeDepositedRaw: "1000000",
+    lifetimeWithdrawnRaw: "0",
+    updatedBlockNumber: 48700110,
+    updatedLogIndex: 0,
+  });
+  insertSnapshot(db, {
+    blockNumber: 48700120,
+    totalAssetsRaw: "2000000",
+    totalSupplyRaw: "1000000000000000000",
+    capturedAt: 1712345660,
+  });
+
+  const baseUrl = await startServer(server);
+  const accountBody = await (await fetch(`${baseUrl}/accounts/${account}`)).json();
+  const vaultBody = await (await fetch(`${baseUrl}/vault`)).json();
+
+  assert.deepEqual(accountBody.activeDeposit, {
+    shares: "1000000000000000000",
+    valueRaw: null,
+  });
+  assert.deepEqual(accountBody.earnedPerformanceFee, {
+    shares: "100000000000000000",
+    valueRaw: null,
+  });
+  assert.deepEqual(accountBody.blockContext, {
+    currentBlock: 48700120,
+    lastProcessedLogBlock: 48700110,
+    lastPerformanceFeeMintBlock: null,
+    blocksSincePerformanceFeeMint: null,
+  });
+  assert.equal(accountBody.lifetimeEarned.raw, null);
+  assert.equal(accountBody.grossLifetimeEarned.raw, null);
+  assert.equal(accountBody.estimatedNetLifetimeEarned.raw, null);
+  assert.equal(accountBody.estimatedPerformanceFee.raw, null);
+  assert.equal(accountBody.valuationBlock, null);
+  assert.equal(accountBody.valuationTime, null);
+
+  assert.deepEqual(vaultBody, {
+    totalSupplyRaw: "1000000000000000000",
+    totalAssetsRaw: null,
+    sharePriceScaledRaw: null,
+    sharePriceScale: "1000000000000000000",
+    cumulativePerformanceFeeSharesRaw: "100000000000000000",
+    cumulativePerformanceFeeValueRaw: null,
+    valuationBlock: null,
+    valuationTime: null,
+    blockContext: {
+      currentBlock: 48700120,
+      lastProcessedLogBlock: 48700110,
+    },
+  });
+});
+
 test("api GETs do not seed rows on a freshly migrated database", async (t) => {
   const db = openDatabase(":memory:");
   const config = createConfig();
