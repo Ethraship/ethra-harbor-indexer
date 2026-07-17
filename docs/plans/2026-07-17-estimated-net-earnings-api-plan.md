@@ -528,9 +528,9 @@ Append this entry to `docs/evolution.md` with date `2026-07-17`:
 - Why: Morpho performance-fee shares mint lazily on vault interaction, so snapshot-only mark-to-market earned can temporarily overstate user-kept earnings until the next fee mint crystallizes the split.
 ```
 
-- [ ] **Step 5: Mark this plan as executed**
+- [x] **Step 5: Saved plan execution record**
 
-Update this step to note that the plan was saved in `docs/plans/2026-07-17-estimated-net-earnings-api-plan.md` before implementation and updated during the docs task.
+This plan was saved at `docs/plans/2026-07-17-estimated-net-earnings-api-plan.md` before implementation and updated during the docs task after implementation.
 
 - [ ] **Step 6: Run documentation-safe verification**
 

@@ -49,6 +49,21 @@ Build output:
 
 - `759e112` `docs: explain estimated net earnings`
 
+## Third Fix
+
+- Replaced the remaining instruction-style Step 5 text in `docs/plans/2026-07-17-estimated-net-earnings-api-plan.md` with final-state wording that records the plan as saved before implementation and updated during the docs task.
+
+## Third Fix Verification
+
+- `npm run build` -> PASS
+
+Build output:
+
+```text
+> ethra-harbor-indexer@0.1.0 build
+> tsc
+```
+
 ## Self-Review
 
 - README now distinguishes mark-to-market lifetime earned, crystallized earned
