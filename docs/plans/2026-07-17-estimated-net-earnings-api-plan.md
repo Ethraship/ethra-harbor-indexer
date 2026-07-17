@@ -440,7 +440,7 @@ const lastPerformanceFeeMintBlock = readLastPerformanceFeeMintBlock(db);
 
 6. In the no-snapshot return, include null derived raw fields and `blockContext(null, lastProcessedLogBlock, lastPerformanceFeeMintBlock)`.
 
-7. In the snapshot return, use the plan that was saved in `docs/plans/2026-07-17-estimated-net-earnings-api-plan.md` before implementation and updated during the docs task. Use:
+7. In the snapshot return, use:
 
 ```ts
 const netLifetimeEarned = lifetimeEarned > 0n ? lifetimeEarned : 0n;
@@ -530,7 +530,7 @@ Append this entry to `docs/evolution.md` with date `2026-07-17`:
 
 - [ ] **Step 5: Mark this plan as executed**
 
-In this plan file, change this task's final step text to mention that the plan was saved in `docs/plans/2026-07-17-estimated-net-earnings-api-plan.md` before implementation and updated during the docs task.
+Update this step to note that the plan was saved in `docs/plans/2026-07-17-estimated-net-earnings-api-plan.md` before implementation and updated during the docs task.
 
 - [ ] **Step 6: Run documentation-safe verification**
 
