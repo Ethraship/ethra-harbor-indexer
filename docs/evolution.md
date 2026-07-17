@@ -2,6 +2,10 @@
 
 ## 2026-07-17
 
+- Area: vault DB read helpers
+- Changed: added `readLastPerformanceFeeMintBlock(db)` to read the latest nonzero `AccrueInterest` block from `accrue_interest_events`, with focused regression tests for the newest minted block and the empty case.
+- Why: the estimated net earnings read-model needs a fast way to know when performance fees were last crystallized without changing indexed state.
+
 - Area: local API dashboard
 - Changed: added a static `/dashboard` page served by the existing HTTP API server, with health, vault, and address lookup panels backed by the read-only JSON routes.
 - Why: operators need a quick browser view of indexed state without curl commands or a separate frontend stack.

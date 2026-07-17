@@ -599,6 +599,20 @@ export function insertAccrueInterestEvent(
   );
 }
 
+export function readLastPerformanceFeeMintBlock(
+  db: Database.Database,
+): number | null {
+  const row = db.prepare(`
+    SELECT block_number
+    FROM accrue_interest_events
+    WHERE performance_fee_shares != '0'
+    ORDER BY block_number DESC, tx_index DESC, log_index DESC
+    LIMIT 1
+  `).get() as { block_number: number } | undefined;
+
+  return row ? row.block_number : null;
+}
+
 export function insertSnapshot(db: Database.Database, snapshot: Snapshot): void {
   db.prepare(`
     INSERT INTO share_price_snapshots (

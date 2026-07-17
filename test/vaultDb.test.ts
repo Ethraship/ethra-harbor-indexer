@@ -293,6 +293,102 @@ test("readVaultState is keyed to the active vault config", () => {
   }
 });
 
+test("readLastPerformanceFeeMintBlock returns the latest nonzero performance fee accrue block", () => {
+  const db = dbApi.openDatabase(":memory:");
+  const vaultDb = dbApi as VaultDbApi;
+
+  try {
+    dbApi.runMigrations(db);
+
+    vaultDb.insertAccrueInterestEvent(db, {
+      chainId: 8453,
+      contractAddress: "0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d",
+      blockNumber: 48700001,
+      blockHash: "0xblock-1",
+      txHash: "0xtx-1",
+      txIndex: 0,
+      logIndex: 1,
+      previousTotalAssets: "1000000",
+      newTotalAssets: "1000001",
+      performanceFeeShares: "0",
+      managementFeeShares: "0",
+      totalSupplyBeforeRaw: "1000000000000000000",
+      globalIndexAfterRaw: "0",
+      rawLogJson: "{}",
+      createdAt: 1712345600,
+    });
+    vaultDb.insertAccrueInterestEvent(db, {
+      chainId: 8453,
+      contractAddress: "0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d",
+      blockNumber: 48700003,
+      blockHash: "0xblock-3",
+      txHash: "0xtx-3",
+      txIndex: 0,
+      logIndex: 2,
+      previousTotalAssets: "1000001",
+      newTotalAssets: "1000002",
+      performanceFeeShares: "15",
+      managementFeeShares: "0",
+      totalSupplyBeforeRaw: "1000000000000000000",
+      globalIndexAfterRaw: "15",
+      rawLogJson: "{}",
+      createdAt: 1712345601,
+    });
+    vaultDb.insertAccrueInterestEvent(db, {
+      chainId: 8453,
+      contractAddress: "0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d",
+      blockNumber: 48700003,
+      blockHash: "0xblock-3",
+      txHash: "0xtx-4",
+      txIndex: 1,
+      logIndex: 3,
+      previousTotalAssets: "1000002",
+      newTotalAssets: "1000003",
+      performanceFeeShares: "25",
+      managementFeeShares: "0",
+      totalSupplyBeforeRaw: "1000000000000000000",
+      globalIndexAfterRaw: "40",
+      rawLogJson: "{}",
+      createdAt: 1712345602,
+    });
+
+    assert.equal(vaultDb.readLastPerformanceFeeMintBlock(db), 48700003);
+  } finally {
+    dbApi.closeDatabase(db);
+  }
+});
+
+test("readLastPerformanceFeeMintBlock returns null when no nonzero performance fee exists", () => {
+  const db = dbApi.openDatabase(":memory:");
+  const vaultDb = dbApi as VaultDbApi;
+
+  try {
+    dbApi.runMigrations(db);
+
+    vaultDb.insertAccrueInterestEvent(db, {
+      chainId: 8453,
+      contractAddress: "0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d",
+      blockNumber: 48700001,
+      blockHash: "0xblock-1",
+      txHash: "0xtx-1",
+      txIndex: 0,
+      logIndex: 1,
+      previousTotalAssets: "1000000",
+      newTotalAssets: "1000001",
+      performanceFeeShares: "0",
+      managementFeeShares: "0",
+      totalSupplyBeforeRaw: "1000000000000000000",
+      globalIndexAfterRaw: "0",
+      rawLogJson: "{}",
+      createdAt: 1712345600,
+    });
+
+    assert.equal(vaultDb.readLastPerformanceFeeMintBlock(db), null);
+  } finally {
+    dbApi.closeDatabase(db);
+  }
+});
+
 test("readLatestSnapshot returns null when empty and the highest block snapshot after inserts", () => {
   const db = dbApi.openDatabase(":memory:");
   const vaultDb = dbApi as VaultDbApi;
