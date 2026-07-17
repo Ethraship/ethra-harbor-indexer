@@ -99,7 +99,7 @@ the trimmed entries are appended in order and used as explicit fallbacks for
 The API is read-only and serves JSON over built-in `node:http`.
 
 - `GET /health`
-  - Returns `{ status, cursorBlock, safeHeadKnown }`
+  - Returns `{ status, cursorBlock, safeHead, safeHeadKnown, syncedToSafeHead }`
 - `GET /vault`
   - Returns vault totals, latest snapshot valuation, scaled share price, and
     cumulative performance-fee totals

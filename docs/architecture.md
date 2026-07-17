@@ -1,6 +1,6 @@
 # Architecture
 
-Last updated: 2026-07-16
+Last updated: 2026-07-17
 
 ## Stack
 
@@ -109,17 +109,19 @@ fallbacks.
    - `safeHead = head - CONFIRMATIONS`
    - `fromBlock = cursor + 1`
    - `toBlock = min(safeHead, fromBlock + CHUNK_SIZE - 1)`
-4. If no safe range exists, the crawler schedules the next loop based on
-   `CRAWL_MODE`.
+4. If no safe range exists, the crawler publishes the latest safe head for API
+   health and schedules the next loop based on `CRAWL_MODE`.
 5. Otherwise it fetches one `getLogs` request for the four indexed event
    signatures from the configured vault address.
 6. Each log is decoded and normalized, then events are sorted by
    `(block_number, transaction_index, log_index)`.
 7. `applyChunk` persists raw rows, applies the in-memory ledger accumulator,
    upserts touched account rows and vault reward state, and advances the cursor
-   to `toBlock` inside one SQLite transaction.
-8. If any step fails, the chunk is not partially committed. The error is
-   recorded in `crawl_errors`, and the range is retried on a later loop.
+   to `toBlock` inside one SQLite transaction. After a successful chunk, the
+   crawler publishes the tick result for API health.
+8. If any step fails, the chunk is not partially committed. The short error
+   text is recorded in `crawl_errors`, the structured log includes serialized
+   error details, and the range is retried on a later loop.
 
 Fresh databases seed `START_BLOCK` to `48578254`, so the first scanned block is
 the deployment block `48578255`.
@@ -161,8 +163,8 @@ fanout writes.
 2. On each interval (`SNAPSHOT_INTERVAL_MS`), it calls `readVaultTotals`.
 3. The returned `blockNumber`, `totalAssetsRaw`, and `totalSupplyRaw` are
    inserted into `share_price_snapshots` with `captured_at`.
-4. If a snapshot read fails, the error is logged and the snapshotter retries on
-   the same interval.
+4. If a snapshot read fails, serialized error details are logged and the
+   snapshotter retries on the same interval.
 
 Valuation uses the latest stored snapshot only. Share value is computed as:
 
@@ -188,7 +190,12 @@ The API is optional (`API_ENABLED`) and listens on `API_PORT` when enabled.
 Endpoints:
 
 - `GET /health`
-  - Returns process-readiness style metadata: `{ status, cursorBlock, safeHeadKnown }`
+  - Returns process-readiness style metadata:
+    `{ status, cursorBlock, safeHead, safeHeadKnown, syncedToSafeHead }`
+  - `safeHead` is the latest crawler-observed `head - CONFIRMATIONS`; it is
+    `null` until the crawler completes its first head read.
+  - `syncedToSafeHead` is `true` when the persisted cursor is at or beyond that
+    latest safe head.
 - `GET /vault`
   - Returns indexed `totalSupplyRaw`, latest snapshot `totalAssetsRaw`,
     share-price fields, and cumulative performance-fee totals

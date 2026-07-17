@@ -99,7 +99,9 @@ test("api serves account, vault, and health metrics from indexed state", async (
   assert.deepEqual(await healthRes.json(), {
     status: "ok",
     cursorBlock: 48578254,
+    safeHead: null,
     safeHeadKnown: false,
+    syncedToSafeHead: false,
   });
 
   assert.deepEqual(await vaultRes.json(), {
@@ -173,7 +175,9 @@ test("api GETs do not seed rows on a freshly migrated database", async (t) => {
   assert.deepEqual(await healthRes.json(), {
     status: "ok",
     cursorBlock: null,
+    safeHead: null,
     safeHeadKnown: false,
+    syncedToSafeHead: false,
   });
   assert.deepEqual(await vaultRes.json(), {
     totalSupplyRaw: "0",
@@ -364,5 +368,47 @@ test("api returns raw metrics with null valuation fields when no snapshot exists
     cumulativePerformanceFeeValueRaw: null,
     valuationBlock: null,
     valuationTime: null,
+  });
+});
+
+test("api health reports safe head sync status when crawler state is known", async (t) => {
+  const db = openDatabase(":memory:");
+  const config = createConfig();
+  const health = {
+    safeHead: 48748007,
+  };
+  const server = createApiServer({ db, config, health });
+
+  t.after(async () => {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+    closeDatabase(db);
+  });
+
+  runMigrations(db);
+  getOrCreateVaultCursor(db, config);
+  db.prepare(`
+    UPDATE indexer_state
+    SET last_scanned_block = ?
+  `).run(health.safeHead);
+
+  const baseUrl = await startServer(server);
+  const healthRes = await fetch(`${baseUrl}/health`);
+
+  assert.equal(healthRes.status, 200);
+  assert.deepEqual(await healthRes.json(), {
+    status: "ok",
+    cursorBlock: 48748007,
+    safeHead: 48748007,
+    safeHeadKnown: true,
+    syncedToSafeHead: true,
   });
 });

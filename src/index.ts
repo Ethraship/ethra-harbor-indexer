@@ -9,7 +9,7 @@ import { createApiServer } from "./api/server";
 import { loadConfig } from "./config";
 import { closeDatabase, openDatabase, runMigrations } from "./db";
 import { VaultCrawler } from "./indexer/crawler";
-import { createLogger } from "./logger";
+import { createLogger, serializeError } from "./logger";
 import { createBaseProviderClient } from "./provider/baseProvider";
 import {
   SharePriceSnapshotter,
@@ -55,6 +55,9 @@ async function bootstrap(): Promise<void> {
   let crawler: VaultCrawler | null = null;
   let snapshotter: SharePriceSnapshotter | null = null;
   let apiServer: http.Server | null = null;
+  const health = {
+    safeHead: null as number | null,
+  };
 
   const closeDbOnce = () => {
     if (dbClosed) {
@@ -79,16 +82,17 @@ async function bootstrap(): Promise<void> {
       await crawler?.stop();
     } catch (error) {
       shutdownError = error;
-      const message = error instanceof Error ? error.message : String(error);
-      logger.error("crawler shutdown failed", { signal, message });
+      logger.error("crawler shutdown failed", { signal, error: serializeError(error) });
     }
 
     try {
       await snapshotter?.stop();
     } catch (error) {
       shutdownError ??= error;
-      const message = error instanceof Error ? error.message : String(error);
-      logger.error("snapshotter shutdown failed", { signal, message });
+      logger.error("snapshotter shutdown failed", {
+        signal,
+        error: serializeError(error),
+      });
     }
 
     try {
@@ -97,16 +101,16 @@ async function bootstrap(): Promise<void> {
       }
     } catch (error) {
       shutdownError ??= error;
-      const message = error instanceof Error ? error.message : String(error);
-      logger.error("api server shutdown failed", { signal, message });
+      logger.error("api server shutdown failed", { signal, error: serializeError(error) });
     } finally {
       closeDbOnce();
     }
 
     if (shutdownError) {
-      const message =
-        shutdownError instanceof Error ? shutdownError.message : String(shutdownError);
-      logger.error("shutdown failed", { signal, message });
+      logger.error("shutdown failed", {
+        signal,
+        error: serializeError(shutdownError),
+      });
       process.exitCode = 1;
       return;
     }
@@ -136,6 +140,9 @@ async function bootstrap(): Promise<void> {
       db,
       provider,
       iface: new Interface(MORPHO_VAULT_ABI),
+      onTickResult: (result) => {
+        health.safeHead = result.safeHead;
+      },
       logger,
     });
 
@@ -147,7 +154,7 @@ async function bootstrap(): Promise<void> {
     });
 
     if (config.apiEnabled) {
-      apiServer = createApiServer({ db, config });
+      apiServer = createApiServer({ db, config, health });
       await listen(apiServer, config.apiPort);
 
       if (shuttingDown) {

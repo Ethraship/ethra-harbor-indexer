@@ -2,6 +2,7 @@ import type Database from "better-sqlite3";
 
 import type { AppConfig } from "../config";
 import { insertSnapshot, type Snapshot } from "../db";
+import { serializeError } from "../logger";
 import type { VaultTotalsSnapshot } from "../provider/baseProvider";
 
 export interface SharePriceReader {
@@ -18,14 +19,6 @@ export interface SharePriceSnapshotterDependencies {
     warn(message: string, meta?: Record<string, unknown>): void;
     error(message: string, meta?: Record<string, unknown>): void;
   };
-}
-
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return String(error);
 }
 
 export function valueOfShares(sharesRaw: bigint, snapshot: Snapshot): bigint {
@@ -125,7 +118,7 @@ export class SharePriceSnapshotter {
       }
     } catch (error) {
       this.logger.error("share price snapshot failed", {
-        message: errorMessage(error),
+        error: serializeError(error),
       });
 
       if (!this.stopped) {

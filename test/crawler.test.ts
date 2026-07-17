@@ -14,6 +14,7 @@ import {
   runMigrations,
 } from "../src/db";
 import { VaultCrawler, nextDelayMs } from "../src/indexer/crawler";
+import { createLogger as createStructuredLogger } from "../src/logger";
 import type { BaseProviderClient } from "../src/provider/baseProvider";
 
 const ZERO_ADDRESS = "0x0000000000000000000000000000000000000000";
@@ -388,6 +389,61 @@ test("tick processes two chunks with a four-topic OR filter and atomically appli
   }
 });
 
+test("tick publishes safe head for API health, including idle ticks", async () => {
+  const db = openDatabase(":memory:");
+  const config = createConfig({ chunkSize: 10 });
+  const iface = new Interface(MORPHO_VAULT_ABI);
+  const published: Array<{
+    processedLogs: number;
+    fromBlock: number | null;
+    toBlock: number | null;
+    safeHead: number | null;
+    hasMore: boolean;
+  }> = [];
+  const provider = createProvider({
+    heads: [104, 104],
+    logsByRange: {
+      "101-102": [],
+    },
+  });
+
+  try {
+    runMigrations(db);
+
+    const crawler = new VaultCrawler({
+      config,
+      db,
+      provider,
+      iface,
+      logger: createLogger(),
+      onTickResult: (result) => {
+        published.push(result);
+      },
+    });
+
+    const firstTick = await crawler.tick();
+    const secondTick = await crawler.tick();
+
+    assert.deepEqual(firstTick, {
+      processedLogs: 0,
+      fromBlock: 101,
+      toBlock: 102,
+      safeHead: 102,
+      hasMore: false,
+    });
+    assert.deepEqual(secondTick, {
+      processedLogs: 0,
+      fromBlock: null,
+      toBlock: null,
+      safeHead: 102,
+      hasMore: false,
+    });
+    assert.deepEqual(published, [firstTick, secondTick]);
+  } finally {
+    closeDatabase(db);
+  }
+});
+
 test("tick retries a failed chunk after transaction rollback and applies it exactly once", async () => {
   const db = openDatabase(":memory:");
   const config = createConfig();
@@ -590,6 +646,67 @@ test("tick records chunk failures without advancing the vault cursor", async () 
       },
     ]);
   } finally {
+    closeDatabase(db);
+  }
+});
+
+test("tick emits structured error details when a crawler chunk fails", async () => {
+  const db = openDatabase(":memory:");
+  const config = createConfig();
+  const iface = new Interface(MORPHO_VAULT_ABI);
+  const providerError = Object.assign(new Error("rpc getLogs failed"), {
+    code: "SERVER_ERROR",
+  });
+  const provider = createProvider({
+    heads: [105],
+    failingRanges: {
+      "101-102": providerError,
+    },
+  });
+  const calls: string[] = [];
+  const originalError = console.error;
+
+  console.error = (value?: unknown) => {
+    calls.push(String(value));
+  };
+
+  try {
+    runMigrations(db);
+
+    const crawler = new VaultCrawler({
+      config,
+      db,
+      provider,
+      iface,
+      logger: createStructuredLogger("error"),
+    });
+
+    await assert.rejects(() => crawler.tick(), /rpc getLogs failed/);
+
+    assert.equal(calls.length, 1);
+    const logged = JSON.parse(calls[0]!) as {
+      level?: string;
+      message?: string;
+      fromBlock?: number;
+      toBlock?: number;
+      error?: {
+        name?: string;
+        message?: string;
+        stack?: string;
+        code?: string;
+      };
+    };
+
+    assert.equal(logged.level, "error");
+    assert.equal(logged.message, "crawler chunk failed");
+    assert.equal(logged.fromBlock, 101);
+    assert.equal(logged.toBlock, 102);
+    assert.equal(logged.error?.name, "Error");
+    assert.equal(logged.error?.message, "rpc getLogs failed");
+    assert.equal(logged.error?.code, "SERVER_ERROR");
+    assert.match(logged.error?.stack ?? "", /rpc getLogs failed/);
+  } finally {
+    console.error = originalError;
     closeDatabase(db);
   }
 });

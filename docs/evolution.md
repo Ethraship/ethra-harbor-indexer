@@ -1,5 +1,15 @@
 # Evolution
 
+## 2026-07-17
+
+- Area: API health reporting
+- Changed: `/health` now returns the crawler's latest observed `safeHead`, keeps `safeHeadKnown` as a real runtime flag, and adds `syncedToSafeHead` when the persisted cursor has reached that safe head.
+- Why: operators need health output to match crawler logs and show when the indexer is caught up to the confirmed chain head.
+
+- Area: operational error logging
+- Changed: serialized caught errors under an `error` metadata object for crawler chunk failures, share-price snapshot failures, and shutdown failures, while keeping `crawl_errors.message` as the human-readable failure text.
+- Why: top-level log `message` is reserved for the event name, so exception text logged under metadata key `message` was being overwritten and operators could not see why a chunk failed.
+
 ## 2026-07-16
 
 - Area: bootstrap wiring

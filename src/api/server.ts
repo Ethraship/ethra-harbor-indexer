@@ -10,6 +10,9 @@ import { getAccountMetrics, getVaultMetrics } from "./queries";
 export interface ApiServerDependencies {
   db: Database.Database;
   config: AppConfig;
+  health?: {
+    safeHead: number | null;
+  };
 }
 
 function writeJson(
@@ -23,7 +26,7 @@ function writeJson(
 }
 
 export function createApiServer(dependencies: ApiServerDependencies): http.Server {
-  const { db, config } = dependencies;
+  const { db, config, health } = dependencies;
 
   return http.createServer((request, response) => {
     if (!request.url) {
@@ -39,10 +42,16 @@ export function createApiServer(dependencies: ApiServerDependencies): http.Serve
     }
 
     if (url.pathname === "/health") {
+      const cursorBlock = readVaultCursor(db, config);
+      const safeHead = health?.safeHead ?? null;
+
       writeJson(response, 200, {
         status: "ok",
-        cursorBlock: readVaultCursor(db, config),
-        safeHeadKnown: false,
+        cursorBlock,
+        safeHead,
+        safeHeadKnown: safeHead !== null,
+        syncedToSafeHead:
+          cursorBlock !== null && safeHead !== null && cursorBlock >= safeHead,
       });
       return;
     }

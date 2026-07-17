@@ -10,12 +10,14 @@ import {
 import { calculateRange } from "./blockRange";
 import { decodeVaultLog, type DecodedVaultEvent } from "./eventDecoder";
 import type { BaseProviderClient } from "../provider/baseProvider";
+import { serializeError } from "../logger";
 
 export interface CrawlerDependencies {
   config: AppConfig;
   db: Database.Database;
   provider: BaseProviderClient;
   iface: ethers.Interface;
+  onTickResult?: (result: CrawlerTickResult) => void;
   logger: {
     debug(message: string, meta?: Record<string, unknown>): void;
     info(message: string, meta?: Record<string, unknown>): void;
@@ -40,14 +42,6 @@ function compareEvents(left: DecodedVaultEvent, right: DecodedVaultEvent): numbe
   );
 }
 
-function errorMessage(error: unknown): string {
-  if (error instanceof Error) {
-    return error.message;
-  }
-
-  return String(error);
-}
-
 export function nextDelayMs(config: AppConfig, hasMore: boolean): number {
   switch (config.crawlMode) {
     case "fast":
@@ -65,6 +59,7 @@ export class VaultCrawler {
   private readonly db: Database.Database;
   private readonly provider: BaseProviderClient;
   private readonly iface: ethers.Interface;
+  private readonly onTickResult?: (result: CrawlerTickResult) => void;
   private readonly logger: CrawlerDependencies["logger"];
   private timer: ReturnType<typeof setTimeout> | null = null;
   private activeRunLoop: Promise<void> | null = null;
@@ -75,12 +70,14 @@ export class VaultCrawler {
     this.db = dependencies.db;
     this.provider = dependencies.provider;
     this.iface = dependencies.iface;
+    this.onTickResult = dependencies.onTickResult;
     this.logger = dependencies.logger;
   }
 
   async tick(): Promise<CrawlerTickResult> {
     const cursor = getOrCreateVaultCursor(this.db, this.config);
     const head = await this.provider.getBlockNumber();
+    const safeHead = Math.max(0, head - this.config.confirmations);
     const range = calculateRange(
       cursor,
       head,
@@ -89,13 +86,16 @@ export class VaultCrawler {
     );
 
     if (!range) {
-      return {
+      const result = {
         processedLogs: 0,
         fromBlock: null,
         toBlock: null,
-        safeHead: null,
+        safeHead,
         hasMore: false,
       };
+
+      this.onTickResult?.(result);
+      return result;
     }
 
     try {
@@ -141,27 +141,30 @@ export class VaultCrawler {
         hasMore: range.hasMore,
       });
 
-      return {
+      const result = {
         processedLogs: decodedEvents.length,
         fromBlock: range.fromBlock,
         toBlock: range.toBlock,
         safeHead: range.safeHead,
         hasMore: range.hasMore,
       };
+
+      this.onTickResult?.(result);
+      return result;
     } catch (error) {
-      const message = errorMessage(error);
+      const serializedError = serializeError(error);
 
       recordCrawlError(this.db, {
         chainId: this.config.chainId,
         fromBlock: range.fromBlock,
         toBlock: range.toBlock,
-        message,
+        message: serializedError.message,
         createdAt: Date.now(),
       });
       this.logger.error("crawler chunk failed", {
         fromBlock: range.fromBlock,
         toBlock: range.toBlock,
-        message,
+        error: serializedError,
       });
 
       throw error;
