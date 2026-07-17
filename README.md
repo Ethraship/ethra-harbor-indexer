@@ -27,13 +27,17 @@ The indexer uses them with distinct roles:
 
 ## What The API Answers
 
-For each wallet address, the backend exposes five metrics:
+For each wallet address, the backend exposes:
 
 1. Active deposit: current vault share balance and snapshot-based USDC value
 2. Lifetime deposited: cumulative USDC deposited on behalf of the wallet
 3. Lifetime withdrawn: cumulative USDC withdrawn on behalf of the wallet
-4. Lifetime earned: `max(0, active value + lifetime withdrawn - lifetime deposited)`
-5. Earned performance fee: attributable performance-fee shares and USDC value
+4. Mark-to-market lifetime earned: existing `lifetimeEarned`
+5. Crystallized earned performance fee: existing `earnedPerformanceFee`
+6. Gross generated yield: `grossLifetimeEarned`
+7. Estimated user-kept net earned: `estimatedNetLifetimeEarned`
+8. Estimated total performance fee: `estimatedPerformanceFee`
+9. Freshness metadata: `blockContext`
 
 Vault-level reads expose current indexed total supply, latest snapshot totals,
 share price, and cumulative attributable performance-fee totals.
@@ -54,6 +58,11 @@ USDC valuation does not happen during crawling. A separate snapshotter reads
 `totalAssets()` and `totalSupply()` on an interval and inserts
 `share_price_snapshots`. API responses use the latest snapshot and label the
 valuation with `valuationBlock` and `valuationTime`.
+
+Estimated earnings are derived at read time from local SQLite state plus the
+latest snapshot. The estimate assumes the current single-vault performance fee
+rate of `5000` bps and is surfaced alongside `blockContext` freshness
+metadata.
 
 ## Quickstart
 
@@ -110,7 +119,8 @@ The API is read-only and serves JSON plus a local static dashboard over built-in
   - Returns vault totals, latest snapshot valuation, scaled share price, and
     cumulative performance-fee totals
 - `GET /accounts/:address`
-  - Returns the five per-address metrics for a checksum-valid wallet address
+  - Returns the per-address metrics, including estimated net earnings and
+    freshness metadata, for a checksum-valid wallet address
 
 Unknown routes return `404`. Invalid account addresses return `400`.
 

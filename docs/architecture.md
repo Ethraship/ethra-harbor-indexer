@@ -176,6 +176,12 @@ Valuation uses the latest stored snapshot only. Share value is computed as:
 
 with integer flooring, and zero when snapshot supply is zero.
 
+Account valuation helpers then combine that snapshot with local account state to
+derive mark-to-market lifetime earned, crystallized earned performance fee,
+gross generated yield, estimated net earned, and estimated performance fee at
+read time. The account API does not perform live chain reads during request
+handling.
+
 ## Scheduler Behavior
 
 The crawler is timer-driven:
@@ -209,11 +215,16 @@ Endpoints:
     share-price fields, and cumulative performance-fee totals
 - `GET /accounts/:address`
   - Returns active deposit, lifetime deposit/withdraw totals, lifetime earned,
-    earned performance fee, and valuation metadata
+    earned performance fee, gross and estimated net earnings, estimated
+    performance fee, and freshness metadata
 
 API queries are read-only and intentionally avoid the mutating helpers that
 create cursor or vault-state rows. Dashboard static file serving is constrained
 to a fixed asset map and is not a general-purpose file server.
+
+Account reads do not hit the chain. They derive estimated net earnings at read
+time from local SQLite state plus the latest stored snapshot and the latest fee
+mint block recorded in SQLite.
 
 ## Reorg Posture
 

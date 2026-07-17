@@ -32,6 +32,9 @@ For each wallet address, the backend answers:
 - lifetime USDC withdrawn
 - approximate lifetime earned, labeled as analytics
 - performance-fee shares attributable to that wallet's position and USDC value
+- estimated net earnings and estimated performance fee at the current
+  single-vault rate
+- freshness metadata for the latest snapshot, crawler cursor, and fee mint
 
 Vault-level reads expose total supply, latest share-price snapshot, share price,
 and cumulative performance-fee shares and value.

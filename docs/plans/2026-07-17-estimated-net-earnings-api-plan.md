@@ -440,7 +440,7 @@ const lastPerformanceFeeMintBlock = readLastPerformanceFeeMintBlock(db);
 
 6. In the no-snapshot return, include null derived raw fields and `blockContext(null, lastProcessedLogBlock, lastPerformanceFeeMintBlock)`.
 
-7. In the snapshot return, use:
+7. In the snapshot return, use the plan that was saved in `docs/plans/2026-07-17-estimated-net-earnings-api-plan.md` before implementation and updated during the docs task. Use:
 
 ```ts
 const netLifetimeEarned = lifetimeEarned > 0n ? lifetimeEarned : 0n;

@@ -2,6 +2,10 @@
 
 ## 2026-07-17
 
+- Area: account earnings API semantics
+- Changed: added gross lifetime earned, estimated net lifetime earned, estimated performance fee, and block freshness metadata to account metrics while preserving the existing mark-to-market `lifetimeEarned` field.
+- Why: Morpho performance-fee shares mint lazily on vault interaction, so snapshot-only mark-to-market earned can temporarily overstate user-kept earnings until the next fee mint crystallizes the split.
+
 - Area: vault DB read helpers
 - Changed: added `readLastPerformanceFeeMintBlock(db, config)` to read the latest nonzero `AccrueInterest` block from `accrue_interest_events` for the active `(chain_id, contract_address)`, with focused regression tests for vault isolation and the empty case.
 - Why: the estimated net earnings read-model needs a fast way to know when performance fees were last crystallized without changing indexed state.
