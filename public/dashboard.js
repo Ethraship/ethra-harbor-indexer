@@ -60,6 +60,24 @@ function formatInteger(value) {
   return groupDigits(String(value));
 }
 
+function formatBps(value) {
+  if (value === null || value === undefined) {
+    return "Unknown";
+  }
+
+  const bps = Number(value);
+  if (!Number.isFinite(bps)) {
+    return "Unknown";
+  }
+
+  const percent = bps / 100;
+  const display = new Intl.NumberFormat(undefined, {
+    maximumFractionDigits: 2,
+  }).format(percent);
+
+  return `${display}%`;
+}
+
 function formatTimestamp(value) {
   if (value === null || value === undefined) {
     return "Not captured yet";
@@ -145,6 +163,7 @@ function renderHealth(data) {
 }
 
 function renderVault(data) {
+  const blockContext = data.blockContext ?? {};
   const hasSnapshot = data.totalAssetsRaw !== null && data.sharePriceScaledRaw !== null;
   setPill(elements.vaultPill, hasSnapshot ? "Valued" : "No snapshot", hasSnapshot ? "" : "pill-warning");
 
@@ -178,6 +197,16 @@ function renderVault(data) {
       value: formatRawDecimal(data.cumulativePerformanceFeeValueRaw, USDC_DECIMALS, "USDC"),
       raw: data.cumulativePerformanceFeeValueRaw,
     },
+    {
+      label: "Current block",
+      value: formatInteger(blockContext.currentBlock),
+      raw: blockContext.currentBlock,
+    },
+    {
+      label: "Last processed log",
+      value: formatInteger(blockContext.lastProcessedLogBlock),
+      raw: blockContext.lastProcessedLogBlock,
+    },
     { label: "Valuation block", value: formatInteger(data.valuationBlock), raw: data.valuationBlock },
     { label: "Valuation time", value: formatTimestamp(data.valuationTime), raw: data.valuationTime },
   ]);
@@ -197,6 +226,12 @@ function makeMetricSection(title, metrics) {
 }
 
 function renderAccount(data) {
+  const estimatedNetLifetimeEarned = data.estimatedNetLifetimeEarned ?? {
+    raw: data.lifetimeEarned.raw,
+    performanceFeeRateBps: null,
+  };
+  const blockContext = data.blockContext ?? {};
+
   elements.accountEmpty.hidden = true;
   elements.accountResults.hidden = false;
   setPill(elements.accountPill, "Loaded");
@@ -229,9 +264,24 @@ function renderAccount(data) {
         raw: data.lifetimeWithdrawn.raw,
       },
       {
-        label: "Earned",
+        label: "Estimated net earned",
+        value: formatRawDecimal(estimatedNetLifetimeEarned.raw, USDC_DECIMALS, "USDC"),
+        raw: estimatedNetLifetimeEarned.raw,
+      },
+      {
+        label: "Gross generated yield",
+        value: formatRawDecimal(data.grossLifetimeEarned?.raw, USDC_DECIMALS, "USDC"),
+        raw: data.grossLifetimeEarned?.raw,
+      },
+      {
+        label: "Mark-to-market earned",
         value: formatRawDecimal(data.lifetimeEarned.raw, USDC_DECIMALS, "USDC"),
         raw: data.lifetimeEarned.raw,
+      },
+      {
+        label: "Estimated performance fee",
+        value: formatRawDecimal(data.estimatedPerformanceFee?.raw, USDC_DECIMALS, "USDC"),
+        raw: data.estimatedPerformanceFee?.raw,
       },
       {
         label: "Fee shares",
@@ -239,9 +289,36 @@ function renderAccount(data) {
         raw: data.earnedPerformanceFee.shares,
       },
       {
-        label: "Fee value",
+        label: "Crystallized fee value",
         value: formatRawDecimal(data.earnedPerformanceFee.valueRaw, USDC_DECIMALS, "USDC"),
         raw: data.earnedPerformanceFee.valueRaw,
+      },
+      {
+        label: "Performance fee rate",
+        value: formatBps(estimatedNetLifetimeEarned.performanceFeeRateBps),
+        raw: estimatedNetLifetimeEarned.performanceFeeRateBps,
+      },
+    ]),
+    makeMetricSection("Estimate freshness", [
+      {
+        label: "Current block",
+        value: formatInteger(blockContext.currentBlock),
+        raw: blockContext.currentBlock,
+      },
+      {
+        label: "Last processed log",
+        value: formatInteger(blockContext.lastProcessedLogBlock),
+        raw: blockContext.lastProcessedLogBlock,
+      },
+      {
+        label: "Last fee mint",
+        value: formatInteger(blockContext.lastPerformanceFeeMintBlock),
+        raw: blockContext.lastPerformanceFeeMintBlock,
+      },
+      {
+        label: "Blocks since fee mint",
+        value: formatInteger(blockContext.blocksSincePerformanceFeeMint),
+        raw: blockContext.blocksSincePerformanceFeeMint,
       },
     ]),
   );
