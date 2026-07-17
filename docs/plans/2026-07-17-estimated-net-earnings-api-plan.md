@@ -34,6 +34,7 @@
 - Modify: `src/db/vault.ts`
 - Modify: `src/db/index.ts`
 - Test: `test/vaultDb.test.ts`
+- Test: `test/db.test.ts`
 
 **Interfaces:**
 - Consumes: existing `accrue_interest_events` rows and existing db export barrel.
@@ -46,6 +47,7 @@ Add this test near the other vault DB read helper tests in `test/vaultDb.test.ts
 ```ts
 test("readLastPerformanceFeeMintBlock returns the latest nonzero performance fee accrue block", () => {
   const db = openDatabase(":memory:");
+  const config = createConfig();
 
   try {
     runMigrations(db);
@@ -110,6 +112,7 @@ test("readLastPerformanceFeeMintBlock returns the latest nonzero performance fee
 
 test("readLastPerformanceFeeMintBlock returns null when no nonzero performance fee exists", () => {
   const db = openDatabase(":memory:");
+  const config = createConfig();
 
   try {
     runMigrations(db);
@@ -209,7 +212,7 @@ Expected: PASS. If the sandbox blocks local API server tests with `listen EPERM`
 - [x] **Step 6: Commit**
 
 ```bash
-git add src/db/vault.ts src/db/index.ts test/vaultDb.test.ts
+git add src/db/vault.ts src/db/index.ts test/vaultDb.test.ts test/db.test.ts
 git commit -m "feat: expose last performance fee mint block"
 ```
 
