@@ -79,6 +79,14 @@ test("api serves the dashboard shell and static assets", async (t) => {
   assert.match(html, /\/dashboard\/styles\.css/);
   assert.match(html, /\/dashboard\/app\.js/);
 
+  const js = await jsRes.text();
+  assert.match(js, /Estimated net earned/);
+  assert.match(js, /Gross generated yield/);
+  assert.match(js, /Estimated performance fee/);
+  assert.match(js, /Estimate freshness/);
+  assert.match(js, /estimatedNetLifetimeEarned/);
+  assert.match(js, /blocksSincePerformanceFeeMint/);
+
   assert.deepEqual(await missingRes.json(), {
     error: "not found",
   });
@@ -108,6 +116,10 @@ test("api serves account, vault, and health metrics from indexed state", async (
 
   const cursorBlock = getOrCreateVaultCursor(db, config);
   assert.equal(cursorBlock, 48578254);
+  db.prepare(`
+    UPDATE indexer_state
+    SET last_scanned_block = ?
+  `).run(48700010);
 
   upsertVaultState(db, config, {
     globalIndexRaw: (SCALE / 10n).toString(),
@@ -150,7 +162,7 @@ test("api serves account, vault, and health metrics from indexed state", async (
 
   assert.deepEqual(await healthRes.json(), {
     status: "ok",
-    cursorBlock: 48578254,
+    cursorBlock: 48700010,
     safeHead: null,
     safeHeadKnown: false,
     syncedToSafeHead: false,
@@ -165,6 +177,10 @@ test("api serves account, vault, and health metrics from indexed state", async (
     cumulativePerformanceFeeValueRaw: "750000",
     valuationBlock: 48700010,
     valuationTime: 1712345600,
+    blockContext: {
+      currentBlock: 48700010,
+      lastProcessedLogBlock: 48700010,
+    },
   });
 
   assert.deepEqual(await accountRes.json(), {
@@ -198,7 +214,7 @@ test("api serves account, vault, and health metrics from indexed state", async (
     },
     blockContext: {
       currentBlock: 48700010,
-      lastProcessedLogBlock: 48578254,
+      lastProcessedLogBlock: 48700010,
       lastPerformanceFeeMintBlock: null,
       blocksSincePerformanceFeeMint: null,
     },
@@ -249,6 +265,12 @@ test("api reports last performance fee mint freshness in account block context",
     lifetimeWithdrawnRaw: "0",
     updatedBlockNumber: 48700000,
     updatedLogIndex: 3,
+  });
+  insertSnapshot(db, {
+    blockNumber: 48700006,
+    totalAssetsRaw: "3000302",
+    totalSupplyRaw: "2000000000000000000",
+    capturedAt: 1712345540,
   });
   insertSnapshot(db, {
     blockNumber: 48700010,
@@ -313,6 +335,100 @@ test("api reports last performance fee mint freshness in account block context",
     lastPerformanceFeeMintBlock: 48700005,
     blocksSincePerformanceFeeMint: 5,
   });
+  assert.equal(body.valuationBlock, 48700006);
+  assert.equal(body.valuationTime, 1712345540);
+});
+
+test("api promotes one cursor-eligible snapshot for account and vault valuation", async (t) => {
+  const db = openDatabase(":memory:");
+  const config = createConfig();
+  const account = "0x6666666666666666666666666666666666666666";
+  const server = createApiServer({ db, config });
+
+  t.after(async () => {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+    closeDatabase(db);
+  });
+
+  runMigrations(db);
+  getOrCreateVaultCursor(db, config);
+  db.prepare(`
+    UPDATE indexer_state
+    SET last_scanned_block = ?
+  `).run(48700110);
+  upsertVaultState(db, config, {
+    globalIndexRaw: "0",
+    totalSupplyRaw: "1000000000000000000",
+    cumulativePerfFeeSharesRaw: "0",
+    cumulativeMgmtFeeSharesRaw: "0",
+    updatedBlockNumber: 48700110,
+  });
+  upsertAccountPosition(db, {
+    address: account,
+    balanceRaw: "1000000000000000000",
+    rewardDebtRaw: "0",
+    earnedPerfFeeSharesRaw: "0",
+    lifetimeDepositedRaw: "0",
+    lifetimeWithdrawnRaw: "0",
+    updatedBlockNumber: 48700110,
+    updatedLogIndex: 0,
+  });
+  insertSnapshot(db, {
+    blockNumber: 48700100,
+    totalAssetsRaw: "1000000",
+    totalSupplyRaw: "1000000000000000000",
+    capturedAt: 1712345600,
+  });
+  insertSnapshot(db, {
+    blockNumber: 48700120,
+    totalAssetsRaw: "2000000",
+    totalSupplyRaw: "1000000000000000000",
+    capturedAt: 1712345660,
+  });
+
+  const baseUrl = await startServer(server);
+  const firstAccount = await (await fetch(`${baseUrl}/accounts/${account}`)).json();
+  const firstVault = await (await fetch(`${baseUrl}/vault`)).json();
+
+  assert.deepEqual(firstAccount.activeDeposit, {
+    shares: "1000000000000000000",
+    valueRaw: "1000000",
+  });
+  assert.deepEqual(firstAccount.blockContext, {
+    currentBlock: 48700120,
+    lastProcessedLogBlock: 48700110,
+    lastPerformanceFeeMintBlock: null,
+    blocksSincePerformanceFeeMint: null,
+  });
+  assert.equal(firstAccount.valuationBlock, 48700100);
+  assert.equal(firstVault.totalAssetsRaw, "1000000");
+  assert.equal(firstVault.valuationBlock, 48700100);
+  assert.deepEqual(firstVault.blockContext, {
+    currentBlock: 48700120,
+    lastProcessedLogBlock: 48700110,
+  });
+
+  db.prepare(`
+    UPDATE indexer_state
+    SET last_scanned_block = ?
+  `).run(48700120);
+
+  const promotedAccount = await (await fetch(`${baseUrl}/accounts/${account}`)).json();
+  const promotedVault = await (await fetch(`${baseUrl}/vault`)).json();
+
+  assert.equal(promotedAccount.activeDeposit.valueRaw, "2000000");
+  assert.equal(promotedAccount.valuationBlock, 48700120);
+  assert.equal(promotedVault.totalAssetsRaw, "2000000");
+  assert.equal(promotedVault.valuationBlock, 48700120);
 });
 
 test("api GETs do not seed rows on a freshly migrated database", async (t) => {
@@ -364,6 +480,10 @@ test("api GETs do not seed rows on a freshly migrated database", async (t) => {
     cumulativePerformanceFeeValueRaw: null,
     valuationBlock: null,
     valuationTime: null,
+    blockContext: {
+      currentBlock: null,
+      lastProcessedLogBlock: null,
+    },
   });
   assert.deepEqual(await accountRes.json(), {
     address: account,
@@ -439,6 +559,10 @@ test("api returns zeros for unknown accounts and 400 for invalid addresses", asy
 
   runMigrations(db);
   getOrCreateVaultCursor(db, config);
+  db.prepare(`
+    UPDATE indexer_state
+    SET last_scanned_block = ?
+  `).run(48700010);
   insertSnapshot(db, {
     blockNumber: 48700010,
     totalAssetsRaw: "3000000",
@@ -486,7 +610,7 @@ test("api returns zeros for unknown accounts and 400 for invalid addresses", asy
     },
     blockContext: {
       currentBlock: 48700010,
-      lastProcessedLogBlock: 48578254,
+      lastProcessedLogBlock: 48700010,
       lastPerformanceFeeMintBlock: null,
       blocksSincePerformanceFeeMint: null,
     },
@@ -592,6 +716,10 @@ test("api returns raw metrics with null valuation fields when no snapshot exists
     cumulativePerformanceFeeValueRaw: null,
     valuationBlock: null,
     valuationTime: null,
+    blockContext: {
+      currentBlock: null,
+      lastProcessedLogBlock: 48578254,
+    },
   });
 });
 

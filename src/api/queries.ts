@@ -5,6 +5,7 @@ import {
   readAccountPosition,
   readLastPerformanceFeeMintBlock,
   readLatestSnapshot,
+  readLatestSnapshotAtOrBefore,
   readVaultCursor,
   readVaultStateSnapshot,
 } from "../db";
@@ -62,6 +63,16 @@ export interface VaultMetricsResponse {
   cumulativePerformanceFeeValueRaw: string | null;
   valuationBlock: number | null;
   valuationTime: number | null;
+  blockContext: {
+    currentBlock: number | null;
+    lastProcessedLogBlock: number | null;
+  };
+}
+
+interface ValuationSnapshotContext {
+  currentBlock: number | null;
+  lastProcessedLogBlock: number | null;
+  valuationSnapshot: ReturnType<typeof readLatestSnapshot>;
 }
 
 function toAccountLedger(position: ReturnType<typeof readAccountPosition>): AccountLedger {
@@ -93,16 +104,35 @@ function blockContext(
   };
 }
 
+function readValuationSnapshotContext(
+  db: Database.Database,
+  config: AppConfig,
+): ValuationSnapshotContext {
+  const latestObservedSnapshot = readLatestSnapshot(db);
+  const lastProcessedLogBlock = readVaultCursor(db, config);
+  const valuationSnapshot =
+    lastProcessedLogBlock === null
+      ? null
+      : readLatestSnapshotAtOrBefore(db, lastProcessedLogBlock);
+
+  return {
+    currentBlock: latestObservedSnapshot?.blockNumber ?? null,
+    lastProcessedLogBlock,
+    valuationSnapshot,
+  };
+}
+
 export function getAccountMetrics(
   db: Database.Database,
   config: AppConfig,
   address: string,
 ): AccountMetricsResponse {
-  const lastProcessedLogBlock = readVaultCursor(db, config);
+  const snapshotContext = readValuationSnapshotContext(db, config);
+  const snapshot = snapshotContext.valuationSnapshot;
+  const { currentBlock, lastProcessedLogBlock } = snapshotContext;
   const lastPerformanceFeeMintBlock = readLastPerformanceFeeMintBlock(db, config);
   const position = readAccountPosition(db, address);
   const vaultState = readVaultStateSnapshot(db, config);
-  const snapshot = readLatestSnapshot(db);
   const account = toAccountLedger(position);
 
   settle(account, BigInt(vaultState.globalIndexRaw));
@@ -137,7 +167,7 @@ export function getAccountMetrics(
         shares: account.earnedPerfFeeSharesRaw.toString(),
         valueRaw: null,
       },
-      blockContext: blockContext(null, lastProcessedLogBlock, lastPerformanceFeeMintBlock),
+      blockContext: blockContext(currentBlock, lastProcessedLogBlock, lastPerformanceFeeMintBlock),
       valuationBlock: null,
       valuationTime: null,
     };
@@ -182,11 +212,7 @@ export function getAccountMetrics(
       shares: account.earnedPerfFeeSharesRaw.toString(),
       valueRaw: performanceFeeValue.toString(),
     },
-    blockContext: blockContext(
-      snapshot.blockNumber,
-      lastProcessedLogBlock,
-      lastPerformanceFeeMintBlock,
-    ),
+    blockContext: blockContext(currentBlock, lastProcessedLogBlock, lastPerformanceFeeMintBlock),
     valuationBlock: snapshot.blockNumber,
     valuationTime: snapshot.capturedAt,
   };
@@ -194,7 +220,8 @@ export function getAccountMetrics(
 
 export function getVaultMetrics(db: Database.Database, config: AppConfig): VaultMetricsResponse {
   const vaultState = readVaultStateSnapshot(db, config);
-  const snapshot = readLatestSnapshot(db);
+  const snapshotContext = readValuationSnapshotContext(db, config);
+  const snapshot = snapshotContext.valuationSnapshot;
   const sharePriceScale = (10n ** 18n).toString();
 
   if (!snapshot) {
@@ -207,6 +234,10 @@ export function getVaultMetrics(db: Database.Database, config: AppConfig): Vault
       cumulativePerformanceFeeValueRaw: null,
       valuationBlock: null,
       valuationTime: null,
+      blockContext: {
+        currentBlock: snapshotContext.currentBlock,
+        lastProcessedLogBlock: snapshotContext.lastProcessedLogBlock,
+      },
     };
   }
 
@@ -229,5 +260,9 @@ export function getVaultMetrics(db: Database.Database, config: AppConfig): Vault
     cumulativePerformanceFeeValueRaw,
     valuationBlock: snapshot.blockNumber,
     valuationTime: snapshot.capturedAt,
+    blockContext: {
+      currentBlock: snapshotContext.currentBlock,
+      lastProcessedLogBlock: snapshotContext.lastProcessedLogBlock,
+    },
   };
 }
