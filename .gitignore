@@ -3,4 +3,6 @@ dist/
 data/
 .superpowers/
 .env
+.env.dev
+.env.prod
 .DS_Store
