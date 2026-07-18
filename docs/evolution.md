@@ -1,5 +1,11 @@
 # Evolution
 
+## 2026-07-18
+
+- Area: local API dashboard valuation display
+- Changed: formatted `valuationTime` as Unix milliseconds in the dashboard and added a regression test for millisecond timestamps.
+- Why: the API returns snapshot capture times in milliseconds, and the dashboard was multiplying them as seconds, producing impossible future years such as 58514.
+
 ## 2026-07-17
 
 - Area: cursor-gated account and vault valuation

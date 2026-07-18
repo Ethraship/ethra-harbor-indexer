@@ -197,3 +197,41 @@ test("dashboard renders estimated account earnings and explicit null freshness",
   assert.equal(metricValue(vaultMetrics, "Last processed log"), "48,700,110");
   assert.equal(metricValue(vaultMetrics, "Valuation block"), "48,700,100");
 });
+
+test("dashboard formats valuation times as Unix milliseconds", () => {
+  const document = new FakeDocument();
+  const script = readFileSync(join(process.cwd(), "public/dashboard.js"), "utf8");
+  const context = {
+    console,
+    Date,
+    document,
+    fetch: async () => ({
+      ok: true,
+      json: async () => ({}),
+    }),
+    Intl,
+  };
+
+  vm.createContext(context);
+  vm.runInContext(
+    `${script}\nglobalThis.__dashboardTest = { formatTimestamp };`,
+    context,
+  );
+
+  const dashboard = (
+    context as typeof context & {
+      __dashboardTest: {
+        formatTimestamp: (value: number) => string;
+      };
+    }
+  ).__dashboardTest;
+  const valuationTimeMs = 1784291127583;
+
+  assert.equal(
+    dashboard.formatTimestamp(valuationTimeMs),
+    new Intl.DateTimeFormat(undefined, {
+      dateStyle: "medium",
+      timeStyle: "short",
+    }).format(new Date(valuationTimeMs)),
+  );
+});

@@ -86,7 +86,7 @@ function formatTimestamp(value) {
   return new Intl.DateTimeFormat(undefined, {
     dateStyle: "medium",
     timeStyle: "short",
-  }).format(new Date(value * 1000));
+  }).format(new Date(value));
 }
 
 function rawText(value) {
