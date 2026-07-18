@@ -2,6 +2,10 @@
 
 ## 2026-07-18
 
+- Area: account API estimated performance fee display
+- Changed: `estimatedPerformanceFee.raw` is now capped at `estimatedNetLifetimeEarned.raw` when integer rounding would otherwise make the estimated fee slightly larger than the user's estimated net earned amount.
+- Why: tiny raw-unit rounding differences could make the UI imply that a wallet paid more estimated performance fee than it earned.
+
 - Area: account API active deposit valuation
 - Changed: `activeDeposit.valueRaw` now reports principal still in the vault plus estimated user-kept net earnings, while preserving below-principal snapshot share value for loss cases; `lifetimeEarned.raw` now matches estimated user-kept net earnings instead of the old gross mark-to-market value.
 - Why: account responses should match the dashboard's user-facing active deposit semantics and avoid adding the pending performance-fee portion of gross yield into the user's displayed deposit.

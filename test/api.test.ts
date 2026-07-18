@@ -311,7 +311,7 @@ test("api values active deposits with estimated net earnings while preserving lo
   assert.equal(refreshedLossBody.estimatedNetLifetimeEarned.raw, "0");
 });
 
-test("api reports last performance fee mint freshness in account block context", async (t) => {
+test("api clamps rounded estimated performance fee to net earned and reports freshness", async (t) => {
   const db = openDatabase(":memory:");
   const config = createConfig();
   const account = "0x5555555555555555555555555555555555555555";
@@ -415,7 +415,7 @@ test("api reports last performance fee mint freshness in account block context",
     performanceFeeRateBps: "5000",
   });
   assert.deepEqual(body.estimatedPerformanceFee, {
-    raw: "250076",
+    raw: "250075",
   });
   assert.deepEqual(body.blockContext, {
     currentBlock: 48700010,

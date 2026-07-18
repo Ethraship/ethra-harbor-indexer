@@ -1,6 +1,6 @@
 # Architecture
 
-Last updated: 2026-07-17
+Last updated: 2026-07-18
 
 ## Stack
 
@@ -195,6 +195,9 @@ estimated performance fee at read time. For account responses,
 `activeDeposit.valueRaw` is principal still in the vault plus estimated
 user-kept net earnings when the position is profitable; if the position is below
 principal, it stays at the lower snapshot share value so losses remain visible.
+`estimatedPerformanceFee.raw` is capped at `estimatedNetLifetimeEarned.raw` so
+rounding at raw-unit precision never shows a fee larger than the user's
+estimated net earned amount.
 The APIs do not perform live chain reads during request handling.
 
 ## Scheduler Behavior

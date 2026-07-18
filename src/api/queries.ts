@@ -182,7 +182,11 @@ export function getAccountMetrics(
   const grossLifetimeEarned = positiveMarkToMarketLifetimeEarned + performanceFeeValue;
   const estimatedNetLifetimeEarned =
     (grossLifetimeEarned * (BPS_SCALE - PERFORMANCE_FEE_RATE_BPS)) / BPS_SCALE;
-  const estimatedPerformanceFee = grossLifetimeEarned - estimatedNetLifetimeEarned;
+  const roundedEstimatedPerformanceFee = grossLifetimeEarned - estimatedNetLifetimeEarned;
+  const estimatedPerformanceFee =
+    roundedEstimatedPerformanceFee > estimatedNetLifetimeEarned
+      ? estimatedNetLifetimeEarned
+      : roundedEstimatedPerformanceFee;
   const estimatedActiveDepositValue =
     markToMarketLifetimeEarned > 0n
       ? account.lifetimeDepositedRaw - account.lifetimeWithdrawnRaw + estimatedNetLifetimeEarned
