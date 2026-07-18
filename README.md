@@ -84,6 +84,38 @@ npm run build
 npm start
 ```
 
+## PM2
+
+The included `ecosystem.config.cjs` runs the existing production script with
+PM2:
+
+```bash
+npm run build
+pm2 start ecosystem.config.cjs
+pm2 save
+```
+
+Runtime settings should stay in `.env`. The app imports `dotenv/config`, and the
+PM2 config pins `cwd` to this repository root so `.env` and relative paths such
+as `DATABASE_PATH=./data/ethra-harbor-indexer.sqlite` resolve from here.
+
+Important: `dotenv` does not override environment variables that PM2 already
+passes to the process. If you want `.env` to be authoritative, avoid exporting
+the same keys, such as `BASE_RPC_URL` or `API_PORT`, in the shell or PM2
+environment used to start the service.
+
+Useful PM2 commands:
+
+```bash
+pm2 logs ethra-harbor-indexer
+pm2 reload ethra-harbor-indexer
+pm2 stop ethra-harbor-indexer
+pm2 delete ethra-harbor-indexer
+```
+
+Run `npm run build` again before reloading after code changes because PM2 runs
+`npm start`, which executes the compiled `dist/index.js` file.
+
 ## Environment
 
 | Variable | Purpose | Default | Notes |

@@ -2,6 +2,10 @@
 
 ## 2026-07-18
 
+- Area: PM2 process management
+- Changed: added `ecosystem.config.cjs` to run the existing production `npm start` script under PM2 with a fixed repository `cwd`, and documented the build/start/reload commands plus `.env` precedence notes.
+- Why: operators need a repeatable PM2 launch path while keeping runtime RPC, database, crawler, and API settings in the existing `.env` file instead of duplicating them in process-manager config.
+
 - Area: account API estimated performance fee display
 - Changed: `estimatedPerformanceFee.raw` is now capped at `estimatedNetLifetimeEarned.raw` when integer rounding would otherwise make the estimated fee slightly larger than the user's estimated net earned amount.
 - Why: tiny raw-unit rounding differences could make the UI imply that a wallet paid more estimated performance fee than it earned.
