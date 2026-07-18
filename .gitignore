@@ -2,3 +2,5 @@ node_modules/
 dist/
 data/
 .superpowers/
+.env
+.DS_Store
