@@ -1,5 +1,9 @@
 # API Curl Commands
 
+For the complete response contract, field meanings, nullability, units, and
+machine-consumer guidance, see
+[`docs/api-integration-guide.md`](api-integration-guide.md).
+
 The Ethra Harbor Indexer API is read-only and returns JSON over HTTP. By
 default, the server listens on port `8080` when `API_ENABLED` is not `false`.
 
@@ -62,7 +66,11 @@ Example response:
   "cumulativePerformanceFeeSharesRaw": "500000000000000000",
   "cumulativePerformanceFeeValueRaw": "750000",
   "valuationBlock": 48700010,
-  "valuationTime": 1712345600
+  "valuationTime": 1712345600000,
+  "blockContext": {
+    "currentBlock": 48700010,
+    "lastProcessedLogBlock": 48700010
+  }
 }
 ```
 
@@ -81,7 +89,11 @@ curl -sS "${BASE_URL}/vault"
   "cumulativePerformanceFeeSharesRaw": "0",
   "cumulativePerformanceFeeValueRaw": null,
   "valuationBlock": null,
-  "valuationTime": null
+  "valuationTime": null,
+  "blockContext": {
+    "currentBlock": null,
+    "lastProcessedLogBlock": null
+  }
 }
 ```
 
@@ -113,12 +125,28 @@ Example response:
   "lifetimeEarned": {
     "raw": "700000"
   },
+  "grossLifetimeEarned": {
+    "raw": "1150000"
+  },
+  "estimatedNetLifetimeEarned": {
+    "raw": "575000",
+    "performanceFeeRateBps": "5000"
+  },
+  "estimatedPerformanceFee": {
+    "raw": "575000"
+  },
   "earnedPerformanceFee": {
     "shares": "300000000000000000",
     "valueRaw": "450000"
   },
+  "blockContext": {
+    "currentBlock": 48700010,
+    "lastProcessedLogBlock": 48700010,
+    "lastPerformanceFeeMintBlock": null,
+    "blocksSincePerformanceFeeMint": null
+  },
   "valuationBlock": 48700010,
-  "valuationTime": 1712345600
+  "valuationTime": 1712345600000
 }
 ```
 
@@ -144,9 +172,25 @@ curl -sS "${BASE_URL}/accounts/${ACCOUNT_ADDRESS}"
   "lifetimeEarned": {
     "raw": null
   },
+  "grossLifetimeEarned": {
+    "raw": null
+  },
+  "estimatedNetLifetimeEarned": {
+    "raw": null,
+    "performanceFeeRateBps": "5000"
+  },
+  "estimatedPerformanceFee": {
+    "raw": null
+  },
   "earnedPerformanceFee": {
     "shares": "60000000000000000",
     "valueRaw": null
+  },
+  "blockContext": {
+    "currentBlock": null,
+    "lastProcessedLogBlock": 48578254,
+    "lastPerformanceFeeMintBlock": null,
+    "blocksSincePerformanceFeeMint": null
   },
   "valuationBlock": null,
   "valuationTime": null

@@ -111,6 +111,10 @@ the trimmed entries are appended in order and used as explicit fallbacks for
 The API is read-only and serves JSON plus a local static dashboard over built-in
 `node:http`.
 
+For exact response shapes, field meanings, units, nullability, and AI/service
+client integration guidance, see
+[`docs/api-integration-guide.md`](docs/api-integration-guide.md).
+
 - `GET /dashboard`
   - Serves a browser dashboard for health, vault metrics, and account lookup
 - `GET /health`

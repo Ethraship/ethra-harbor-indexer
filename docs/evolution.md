@@ -2,6 +2,10 @@
 
 ## 2026-07-18
 
+- Area: API integration documentation
+- Changed: added a complete AI/service-client API integration guide with every served endpoint, JSON response shapes, field meanings, units, nullability, freshness semantics, and error contracts; refreshed curl examples to include the current block-context and estimated-earnings fields.
+- Why: downstream AI clients need a precise machine-consumer contract for interpreting read-only indexer metrics without guessing at raw integer units, freshness, or nullable valuation fields.
+
 - Area: local API dashboard valuation display
 - Changed: formatted `valuationTime` as Unix milliseconds in the dashboard and added a regression test for millisecond timestamps.
 - Why: the API returns snapshot capture times in milliseconds, and the dashboard was multiplying them as seconds, producing impossible future years such as 58514.
