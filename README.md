@@ -29,10 +29,10 @@ The indexer uses them with distinct roles:
 
 For each wallet address, the backend exposes:
 
-1. Active deposit: current vault share balance and snapshot-based USDC value
+1. Active deposit: current vault share balance and estimated net USDC value
 2. Lifetime deposited: cumulative USDC deposited on behalf of the wallet
 3. Lifetime withdrawn: cumulative USDC withdrawn on behalf of the wallet
-4. Mark-to-market lifetime earned: existing `lifetimeEarned`
+4. User-kept lifetime earned: existing `lifetimeEarned`
 5. Crystallized earned performance fee: existing `earnedPerformanceFee`
 6. Gross generated yield: `grossLifetimeEarned`
 7. Estimated user-kept net earned: `estimatedNetLifetimeEarned`
@@ -59,10 +59,13 @@ USDC valuation does not happen during crawling. A separate snapshotter reads
 `share_price_snapshots`. API responses use the latest snapshot and label the
 valuation with `valuationBlock` and `valuationTime`.
 
-Estimated earnings are derived at read time from local SQLite state plus the
-latest snapshot. The estimate assumes the current single-vault performance fee
-rate of `5000` bps and is surfaced alongside `blockContext` freshness
-metadata.
+Estimated account values are derived at read time from local SQLite state plus
+the latest snapshot. The API first values indexed shares from the snapshot, then
+reports `activeDeposit.valueRaw` as principal still in the vault plus estimated
+user-kept net earnings. If the position is below principal, the API reports the
+lower snapshot share value so losses remain visible. The estimate assumes the
+current single-vault performance fee rate of `5000` bps and is surfaced
+alongside `blockContext` freshness metadata.
 
 ## Quickstart
 

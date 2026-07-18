@@ -173,15 +173,22 @@ export function getAccountMetrics(
     };
   }
 
-  const activeDepositValue = valueOfShares(account.balanceRaw, snapshot);
-  const lifetimeEarned =
-    activeDepositValue + account.lifetimeWithdrawnRaw - account.lifetimeDepositedRaw;
-  const netLifetimeEarned = lifetimeEarned > 0n ? lifetimeEarned : 0n;
+  const grossActiveDepositValue = valueOfShares(account.balanceRaw, snapshot);
+  const markToMarketLifetimeEarned =
+    grossActiveDepositValue + account.lifetimeWithdrawnRaw - account.lifetimeDepositedRaw;
+  const positiveMarkToMarketLifetimeEarned =
+    markToMarketLifetimeEarned > 0n ? markToMarketLifetimeEarned : 0n;
   const performanceFeeValue = valueOfShares(account.earnedPerfFeeSharesRaw, snapshot);
-  const grossLifetimeEarned = netLifetimeEarned + performanceFeeValue;
+  const grossLifetimeEarned = positiveMarkToMarketLifetimeEarned + performanceFeeValue;
   const estimatedNetLifetimeEarned =
     (grossLifetimeEarned * (BPS_SCALE - PERFORMANCE_FEE_RATE_BPS)) / BPS_SCALE;
   const estimatedPerformanceFee = grossLifetimeEarned - estimatedNetLifetimeEarned;
+  const estimatedActiveDepositValue =
+    markToMarketLifetimeEarned > 0n
+      ? account.lifetimeDepositedRaw - account.lifetimeWithdrawnRaw + estimatedNetLifetimeEarned
+      : grossActiveDepositValue;
+  const activeDepositValue =
+    estimatedActiveDepositValue > 0n ? estimatedActiveDepositValue : 0n;
 
   return {
     address: position.address,
@@ -196,7 +203,7 @@ export function getAccountMetrics(
       raw: account.lifetimeWithdrawnRaw.toString(),
     },
     lifetimeEarned: {
-      raw: netLifetimeEarned.toString(),
+      raw: estimatedNetLifetimeEarned.toString(),
     },
     grossLifetimeEarned: {
       raw: grossLifetimeEarned.toString(),

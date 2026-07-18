@@ -189,10 +189,13 @@ Share value is computed as:
 with integer flooring, and zero when snapshot supply is zero.
 
 Account and vault valuation helpers then combine the eligible snapshot with
-local indexed state to derive share values, mark-to-market lifetime earned,
-crystallized earned performance fee, gross generated yield, estimated net
-earned, and estimated performance fee at read time. The APIs do not perform live
-chain reads during request handling.
+local indexed state to derive share values, crystallized earned performance
+fee, gross generated yield, estimated net earned, estimated active deposit, and
+estimated performance fee at read time. For account responses,
+`activeDeposit.valueRaw` is principal still in the vault plus estimated
+user-kept net earnings when the position is profitable; if the position is below
+principal, it stays at the lower snapshot share value so losses remain visible.
+The APIs do not perform live chain reads during request handling.
 
 ## Scheduler Behavior
 

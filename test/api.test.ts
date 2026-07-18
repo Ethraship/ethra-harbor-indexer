@@ -187,7 +187,7 @@ test("api serves account, vault, and health metrics from indexed state", async (
     address: known,
     activeDeposit: {
       shares: "1000000000000000000",
-      valueRaw: "1500000",
+      valueRaw: "1375000",
     },
     lifetimeDeposited: {
       raw: "1000000",
@@ -196,7 +196,7 @@ test("api serves account, vault, and health metrics from indexed state", async (
       raw: "200000",
     },
     lifetimeEarned: {
-      raw: "700000",
+      raw: "575000",
     },
     grossLifetimeEarned: {
       raw: "1150000",
@@ -221,6 +221,94 @@ test("api serves account, vault, and health metrics from indexed state", async (
     valuationBlock: 48700010,
     valuationTime: 1712345600,
   });
+});
+
+test("api values active deposits with estimated net earnings while preserving losses", async (t) => {
+  const db = openDatabase(":memory:");
+  const config = createConfig();
+  const profitableAccount = "0x8888888888888888888888888888888888888888";
+  const lossAccount = "0x9999999999999999999999999999999999999999";
+  const server = createApiServer({ db, config });
+
+  t.after(async () => {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+    closeDatabase(db);
+  });
+
+  runMigrations(db);
+  getOrCreateVaultCursor(db, config);
+  db.prepare(`
+    UPDATE indexer_state
+    SET last_scanned_block = ?
+  `).run(48700010);
+  upsertVaultState(db, config, {
+    globalIndexRaw: "0",
+    totalSupplyRaw: "2000000000000000000",
+    cumulativePerfFeeSharesRaw: "0",
+    cumulativeMgmtFeeSharesRaw: "0",
+    updatedBlockNumber: 48700000,
+  });
+  upsertAccountPosition(db, {
+    address: profitableAccount,
+    balanceRaw: "1000000000000000000",
+    rewardDebtRaw: "0",
+    earnedPerfFeeSharesRaw: "0",
+    lifetimeDepositedRaw: "1000000",
+    lifetimeWithdrawnRaw: "0",
+    updatedBlockNumber: 48700000,
+    updatedLogIndex: 1,
+  });
+  upsertAccountPosition(db, {
+    address: lossAccount,
+    balanceRaw: "1000000000000000000",
+    rewardDebtRaw: "0",
+    earnedPerfFeeSharesRaw: "0",
+    lifetimeDepositedRaw: "1000000",
+    lifetimeWithdrawnRaw: "0",
+    updatedBlockNumber: 48700000,
+    updatedLogIndex: 2,
+  });
+
+  insertSnapshot(db, {
+    blockNumber: 48700010,
+    totalAssetsRaw: "2200000",
+    totalSupplyRaw: "2000000000000000000",
+    capturedAt: 1712345600,
+  });
+
+  const baseUrl = await startServer(server);
+  const profitableBody = await (
+    await fetch(`${baseUrl}/accounts/${profitableAccount}`)
+  ).json();
+
+  assert.equal(profitableBody.activeDeposit.valueRaw, "1050000");
+  assert.equal(profitableBody.lifetimeEarned.raw, "50000");
+  assert.equal(profitableBody.estimatedNetLifetimeEarned.raw, "50000");
+
+  db.prepare(`
+    DELETE FROM share_price_snapshots
+  `).run();
+  insertSnapshot(db, {
+    blockNumber: 48700010,
+    totalAssetsRaw: "1800000",
+    totalSupplyRaw: "2000000000000000000",
+    capturedAt: 1712345601,
+  });
+
+  const refreshedLossBody = await (await fetch(`${baseUrl}/accounts/${lossAccount}`)).json();
+
+  assert.equal(refreshedLossBody.activeDeposit.valueRaw, "900000");
+  assert.equal(refreshedLossBody.lifetimeEarned.raw, "0");
+  assert.equal(refreshedLossBody.estimatedNetLifetimeEarned.raw, "0");
 });
 
 test("api reports last performance fee mint freshness in account block context", async (t) => {
@@ -377,7 +465,7 @@ test("api promotes one cursor-eligible snapshot for account and vault valuation"
     balanceRaw: "1000000000000000000",
     rewardDebtRaw: "0",
     earnedPerfFeeSharesRaw: "0",
-    lifetimeDepositedRaw: "0",
+    lifetimeDepositedRaw: "1000000",
     lifetimeWithdrawnRaw: "0",
     updatedBlockNumber: 48700110,
     updatedLogIndex: 0,
@@ -425,7 +513,7 @@ test("api promotes one cursor-eligible snapshot for account and vault valuation"
   const promotedAccount = await (await fetch(`${baseUrl}/accounts/${account}`)).json();
   const promotedVault = await (await fetch(`${baseUrl}/vault`)).json();
 
-  assert.equal(promotedAccount.activeDeposit.valueRaw, "2000000");
+  assert.equal(promotedAccount.activeDeposit.valueRaw, "1500000");
   assert.equal(promotedAccount.valuationBlock, 48700120);
   assert.equal(promotedVault.totalAssetsRaw, "2000000");
   assert.equal(promotedVault.valuationBlock, 48700120);

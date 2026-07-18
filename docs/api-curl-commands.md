@@ -99,9 +99,10 @@ curl -sS "${BASE_URL}/vault"
 
 ## Account Metrics
 
-Returns active deposit, lifetime deposit and withdrawal totals, lifetime earned,
-earned performance fee, and valuation metadata for one checksum-valid wallet
-address. Unknown valid accounts return zero metrics with status `200`.
+Returns active deposit, lifetime deposit and withdrawal totals, user-kept
+lifetime earned, earned performance fee, and valuation metadata for one
+checksum-valid wallet address. Unknown valid accounts return zero metrics with
+status `200`.
 
 ```sh
 curl -sS "${BASE_URL}/accounts/${ACCOUNT_ADDRESS}"
@@ -114,7 +115,7 @@ Example response:
   "address": "0x1111111111111111111111111111111111111111",
   "activeDeposit": {
     "shares": "1000000000000000000",
-    "valueRaw": "1500000"
+    "valueRaw": "1375000"
   },
   "lifetimeDeposited": {
     "raw": "1000000"
@@ -123,7 +124,7 @@ Example response:
     "raw": "200000"
   },
   "lifetimeEarned": {
-    "raw": "700000"
+    "raw": "575000"
   },
   "grossLifetimeEarned": {
     "raw": "1150000"

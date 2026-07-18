@@ -283,7 +283,7 @@ Response shape with an eligible snapshot:
   "address": "0x1111111111111111111111111111111111111111",
   "activeDeposit": {
     "shares": "1000000000000000000",
-    "valueRaw": "1500000"
+    "valueRaw": "1375000"
   },
   "lifetimeDeposited": {
     "raw": "1000000"
@@ -292,7 +292,7 @@ Response shape with an eligible snapshot:
     "raw": "200000"
   },
   "lifetimeEarned": {
-    "raw": "700000"
+    "raw": "575000"
   },
   "grossLifetimeEarned": {
     "raw": "1150000"
@@ -411,11 +411,11 @@ Field meanings:
 | --- | --- | --- |
 | `address` | string | Normalized Ethereum address used for lookup. |
 | `activeDeposit.shares` | string | Current indexed vault share balance in raw 18-decimal shares. |
-| `activeDeposit.valueRaw` | string or `null` | Snapshot value of active shares in raw USDC. |
+| `activeDeposit.valueRaw` | string or `null` | Estimated net USDC value of the active position: principal still in the vault plus estimated user-kept net earnings, or the lower snapshot share value when the position is below principal. |
 | `lifetimeDeposited.raw` | string | Cumulative raw USDC deposited on behalf of this address. |
 | `lifetimeWithdrawn.raw` | string | Cumulative raw USDC withdrawn on behalf of this address. |
-| `lifetimeEarned.raw` | string or `null` | Mark-to-market earned amount: `max(0, activeDeposit.valueRaw + lifetimeWithdrawn.raw - lifetimeDeposited.raw)`. |
-| `grossLifetimeEarned.raw` | string or `null` | `lifetimeEarned.raw + earnedPerformanceFee.valueRaw`. |
+| `lifetimeEarned.raw` | string or `null` | Estimated user-kept net earned amount. It matches `estimatedNetLifetimeEarned.raw` and is `0` when the position is below principal. |
+| `grossLifetimeEarned.raw` | string or `null` | Gross generated yield before the modeled performance-fee split. |
 | `estimatedNetLifetimeEarned.raw` | string or `null` | Estimated user-kept net earned amount after applying `performanceFeeRateBps` to gross lifetime earned. |
 | `estimatedNetLifetimeEarned.performanceFeeRateBps` | string | Current single-vault performance fee rate used by the API, currently `"5000"`. |
 | `estimatedPerformanceFee.raw` | string or `null` | `grossLifetimeEarned.raw - estimatedNetLifetimeEarned.raw`. |
@@ -428,10 +428,10 @@ Field meanings:
 | `valuationBlock` | number or `null` | Snapshot block used for valuation. |
 | `valuationTime` | number or `null` | Local capture time for the valuation snapshot, in Unix milliseconds. |
 
-AI integration note: prefer `estimatedNetLifetimeEarned.raw` for user-kept
-earnings language. `grossLifetimeEarned.raw` is useful for explaining the gross
-yield before the modeled performance-fee split. `lifetimeEarned.raw` is kept for
-backward compatibility and mark-to-market analytics.
+AI integration note: use `activeDeposit.valueRaw` for the user's current active
+deposit and `estimatedNetLifetimeEarned.raw` or `lifetimeEarned.raw` for
+user-kept earnings language. `grossLifetimeEarned.raw` is only supporting
+analytics for explaining yield before the modeled performance-fee split.
 
 ## Error Responses
 

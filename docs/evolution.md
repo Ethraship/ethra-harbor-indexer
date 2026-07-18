@@ -2,6 +2,10 @@
 
 ## 2026-07-18
 
+- Area: account API active deposit valuation
+- Changed: `activeDeposit.valueRaw` now reports principal still in the vault plus estimated user-kept net earnings, while preserving below-principal snapshot share value for loss cases; `lifetimeEarned.raw` now matches estimated user-kept net earnings instead of the old gross mark-to-market value.
+- Why: account responses should match the dashboard's user-facing active deposit semantics and avoid adding the pending performance-fee portion of gross yield into the user's displayed deposit.
+
 - Area: API integration documentation
 - Changed: added a complete AI/service-client API integration guide with every served endpoint, JSON response shapes, field meanings, units, nullability, freshness semantics, and error contracts; refreshed curl examples to include the current block-context and estimated-earnings fields.
 - Why: downstream AI clients need a precise machine-consumer contract for interpreting read-only indexer metrics without guessing at raw integer units, freshness, or nullable valuation fields.

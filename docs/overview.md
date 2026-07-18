@@ -27,7 +27,7 @@ indexer. It processes four vault events:
 
 For each wallet address, the backend answers:
 
-- active vault share balance and USDC value
+- active vault share balance and estimated net USDC value
 - lifetime USDC deposited
 - lifetime USDC withdrawn
 - approximate lifetime earned, labeled as analytics
