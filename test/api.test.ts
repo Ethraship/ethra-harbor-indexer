@@ -8,6 +8,8 @@ import {
   getOrCreateVaultCursor,
   insertAccrueInterestEvent,
   insertSnapshot,
+  insertTransferEvent,
+  insertWithdrawEvent,
   openDatabase,
   runMigrations,
   upsertAccountPosition,
@@ -517,6 +519,155 @@ test("api promotes one cursor-eligible snapshot for account and vault valuation"
   assert.equal(promotedAccount.valuationBlock, 48700120);
   assert.equal(promotedVault.totalAssetsRaw, "2000000");
   assert.equal(promotedVault.valuationBlock, 48700120);
+});
+
+test("api replays processed fee-mint logs after the eligible snapshot before valuing accounts", async (t) => {
+  const db = openDatabase(":memory:");
+  const config = createConfig();
+  const account = "0x4eC969C24e0Aa04106b8F40a594a18dF37a6e215";
+  const feeRecipient = "0xaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaaa";
+  const server = createApiServer({ db, config });
+
+  t.after(async () => {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+    closeDatabase(db);
+  });
+
+  runMigrations(db);
+  getOrCreateVaultCursor(db, config);
+  db.prepare(`
+    UPDATE indexer_state
+    SET last_scanned_block = ?
+  `).run(48853290);
+
+  const postShares = 18996991748348250188n;
+  const burnedShares = 999792937035575196n;
+  const mintedFeeShares = 742099715642628n;
+  const earnedFeeShares = 925320867466409n;
+  const postSupply = postShares * 100n;
+  const preSupply = postSupply + burnedShares - mintedFeeShares;
+  const preMintAssets = 1901126977n;
+  const postMintAssets = 1900092600n;
+
+  upsertVaultState(db, config, {
+    globalIndexRaw: "0",
+    totalSupplyRaw: postSupply.toString(),
+    cumulativePerfFeeSharesRaw: earnedFeeShares.toString(),
+    cumulativeMgmtFeeSharesRaw: "0",
+    updatedBlockNumber: 48853280,
+  });
+  upsertAccountPosition(db, {
+    address: account,
+    balanceRaw: postShares.toString(),
+    rewardDebtRaw: "0",
+    earnedPerfFeeSharesRaw: earnedFeeShares.toString(),
+    lifetimeDepositedRaw: "39000000",
+    lifetimeWithdrawnRaw: "20000000",
+    updatedBlockNumber: 48853280,
+    updatedLogIndex: 4,
+  });
+  insertSnapshot(db, {
+    blockNumber: 48853260,
+    totalAssetsRaw: preMintAssets.toString(),
+    totalSupplyRaw: preSupply.toString(),
+    capturedAt: 1784495868156,
+  });
+  insertAccrueInterestEvent(db, {
+    chainId: config.chainId,
+    contractAddress: config.contractAddress,
+    blockNumber: 48853280,
+    blockHash: "0xblock-48853280",
+    txHash: "0xtx-fee-minting-withdraw",
+    txIndex: 0,
+    logIndex: 1,
+    previousTotalAssets: preMintAssets.toString(),
+    newTotalAssets: (postMintAssets + 1000000n).toString(),
+    performanceFeeShares: mintedFeeShares.toString(),
+    managementFeeShares: "0",
+    totalSupplyBeforeRaw: preSupply.toString(),
+    globalIndexAfterRaw: "0",
+    rawLogJson: "{}",
+    createdAt: 1784495800000,
+  });
+  insertWithdrawEvent(db, {
+    chainId: config.chainId,
+    contractAddress: config.contractAddress,
+    blockNumber: 48853280,
+    blockHash: "0xblock-48853280",
+    txHash: "0xtx-fee-minting-withdraw",
+    txIndex: 0,
+    logIndex: 2,
+    sender: account,
+    receiver: account,
+    onBehalf: account,
+    assets: "1000000",
+    shares: burnedShares.toString(),
+    rawLogJson: "{}",
+    createdAt: 1784495800000,
+  });
+  insertTransferEvent(db, {
+    chainId: config.chainId,
+    contractAddress: config.contractAddress,
+    blockNumber: 48853280,
+    blockHash: "0xblock-48853280",
+    txHash: "0xtx-fee-minting-withdraw",
+    txIndex: 0,
+    logIndex: 3,
+    fromAddress: account,
+    toAddress: "0x0000000000000000000000000000000000000000",
+    shares: burnedShares.toString(),
+    rawLogJson: "{}",
+    createdAt: 1784495800000,
+  });
+  insertTransferEvent(db, {
+    chainId: config.chainId,
+    contractAddress: config.contractAddress,
+    blockNumber: 48853280,
+    blockHash: "0xblock-48853280",
+    txHash: "0xtx-fee-minting-withdraw",
+    txIndex: 0,
+    logIndex: 4,
+    fromAddress: "0x0000000000000000000000000000000000000000",
+    toAddress: feeRecipient,
+    shares: mintedFeeShares.toString(),
+    rawLogJson: "{}",
+    createdAt: 1784495800000,
+  });
+
+  const baseUrl = await startServer(server);
+  const accountBody = await (await fetch(`${baseUrl}/accounts/${account}`)).json();
+  const vaultBody = await (await fetch(`${baseUrl}/vault`)).json();
+
+  assert.equal(accountBody.activeDeposit.valueRaw, "19000925");
+  assert.equal(accountBody.lifetimeEarned.raw, "925");
+  assert.equal(accountBody.grossLifetimeEarned.raw, "1851");
+  assert.equal(accountBody.estimatedNetLifetimeEarned.raw, "925");
+  assert.equal(accountBody.estimatedPerformanceFee.raw, "925");
+  assert.deepEqual(accountBody.earnedPerformanceFee, {
+    shares: earnedFeeShares.toString(),
+    valueRaw: "925",
+  });
+  assert.deepEqual(accountBody.blockContext, {
+    currentBlock: 48853260,
+    lastProcessedLogBlock: 48853290,
+    lastPerformanceFeeMintBlock: 48853280,
+    blocksSincePerformanceFeeMint: 10,
+  });
+  assert.equal(accountBody.valuationBlock, 48853280);
+  assert.equal(accountBody.valuationTime, 1784495868156);
+
+  assert.equal(vaultBody.totalSupplyRaw, postSupply.toString());
+  assert.equal(vaultBody.totalAssetsRaw, postMintAssets.toString());
+  assert.equal(vaultBody.valuationBlock, 48853280);
 });
 
 test("api reports observed freshness but null valuation when only pending snapshots exist", async (t) => {

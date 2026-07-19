@@ -39,8 +39,8 @@ For each wallet address, the backend exposes:
 8. Estimated total performance fee: `estimatedPerformanceFee`
 9. Freshness metadata: `blockContext`
 
-Vault-level reads expose current indexed total supply, latest snapshot totals,
-share price, and cumulative attributable performance-fee totals.
+Vault-level reads expose current indexed total supply, adjusted valuation
+totals, share price, and cumulative attributable performance-fee totals.
 
 ## Accumulator And Snapshot Model
 
@@ -56,11 +56,14 @@ Performance-fee attribution uses a staking-style global accumulator:
 
 USDC valuation does not happen during crawling. A separate snapshotter reads
 `totalAssets()` and `totalSupply()` on an interval and inserts
-`share_price_snapshots`. API responses use the latest snapshot and label the
-valuation with `valuationBlock` and `valuationTime`.
+`share_price_snapshots`. API responses use the latest cursor-eligible snapshot,
+then replay already-processed vault-total logs after that snapshot into an
+in-memory adjusted valuation so lazy fee mints are not paired with stale supply
+or asset totals. Responses label the effective valuation with `valuationBlock`
+and the base snapshot capture time with `valuationTime`.
 
 Estimated account values are derived at read time from local SQLite state plus
-the latest snapshot. The API first values indexed shares from the snapshot, then
+the adjusted valuation. The API first values indexed shares from that valuation, then
 reports `activeDeposit.valueRaw` as principal still in the vault plus estimated
 user-kept net earnings. If the position is below principal, the API reports the
 lower snapshot share value so losses remain visible. The estimate assumes the
@@ -155,7 +158,7 @@ client integration guidance, see
 - `GET /health`
   - Returns `{ status, cursorBlock, safeHead, safeHeadKnown, syncedToSafeHead }`
 - `GET /vault`
-  - Returns vault totals, latest snapshot valuation, scaled share price, and
+  - Returns vault totals, adjusted valuation, scaled share price, and
     cumulative performance-fee totals
 - `GET /accounts/:address`
   - Returns the per-address metrics, including estimated net earnings and

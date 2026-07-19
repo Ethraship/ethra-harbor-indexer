@@ -1,5 +1,11 @@
 # Evolution
 
+## 2026-07-20
+
+- Area: account and vault valuation consistency
+- Changed: API valuation now starts from the newest cursor-eligible share-price snapshot and replays already-processed vault-total logs after that snapshot into an in-memory adjusted valuation before computing account and vault values; fee-mint freshness now uses the freshest local block reference so it cannot go negative when processed logs are ahead of the latest observed snapshot.
+- Why: cursor gating alone prevented head snapshots from running ahead of logs, but still allowed indexed fee-mint state to run ahead of valuation totals, temporarily overvaluing post-mint shares for one scheduler cycle.
+
 ## 2026-07-18
 
 - Area: PM2 process management

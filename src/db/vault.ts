@@ -38,6 +38,38 @@ export interface Snapshot {
   capturedAt: number;
 }
 
+type SnapshotAdjustmentEvent =
+  | {
+      kind: "deposit";
+      blockNumber: number;
+      txIndex: number;
+      logIndex: number;
+      assetsRaw: string;
+    }
+  | {
+      kind: "withdraw";
+      blockNumber: number;
+      txIndex: number;
+      logIndex: number;
+      assetsRaw: string;
+    }
+  | {
+      kind: "transfer";
+      blockNumber: number;
+      txIndex: number;
+      logIndex: number;
+      fromAddress: string;
+      toAddress: string;
+      sharesRaw: string;
+    }
+  | {
+      kind: "accrue";
+      blockNumber: number;
+      txIndex: number;
+      logIndex: number;
+      newTotalAssetsRaw: string;
+    };
+
 export interface WithdrawEventRecord {
   chainId: number;
   contractAddress: string;
@@ -697,6 +729,247 @@ export function readLatestSnapshotAtOrBefore(
     totalAssetsRaw: row.total_assets_raw,
     totalSupplyRaw: row.total_supply_raw,
     capturedAt: row.captured_at,
+  };
+}
+
+function readSnapshotAdjustmentEvents(
+  db: Database.Database,
+  config: AppConfig,
+  fromBlockExclusive: number,
+  toBlockInclusive: number,
+): SnapshotAdjustmentEvent[] {
+  if (toBlockInclusive <= fromBlockExclusive) {
+    return [];
+  }
+
+  const rows = db.prepare(`
+    SELECT
+      kind,
+      block_number,
+      tx_index,
+      log_index,
+      assets_raw,
+      shares_raw,
+      from_address,
+      to_address,
+      new_total_assets_raw
+    FROM (
+      SELECT
+        'deposit' AS kind,
+        block_number,
+        tx_index,
+        log_index,
+        assets AS assets_raw,
+        NULL AS shares_raw,
+        NULL AS from_address,
+        NULL AS to_address,
+        NULL AS new_total_assets_raw
+      FROM deposit_events
+      WHERE chain_id = ?
+        AND contract_address = ?
+        AND block_number > ?
+        AND block_number <= ?
+
+      UNION ALL
+
+      SELECT
+        'withdraw' AS kind,
+        block_number,
+        tx_index,
+        log_index,
+        assets AS assets_raw,
+        NULL AS shares_raw,
+        NULL AS from_address,
+        NULL AS to_address,
+        NULL AS new_total_assets_raw
+      FROM withdraw_events
+      WHERE chain_id = ?
+        AND contract_address = ?
+        AND block_number > ?
+        AND block_number <= ?
+
+      UNION ALL
+
+      SELECT
+        'transfer' AS kind,
+        block_number,
+        tx_index,
+        log_index,
+        NULL AS assets_raw,
+        shares AS shares_raw,
+        from_address,
+        to_address,
+        NULL AS new_total_assets_raw
+      FROM transfer_events
+      WHERE chain_id = ?
+        AND contract_address = ?
+        AND block_number > ?
+        AND block_number <= ?
+
+      UNION ALL
+
+      SELECT
+        'accrue' AS kind,
+        block_number,
+        tx_index,
+        log_index,
+        NULL AS assets_raw,
+        NULL AS shares_raw,
+        NULL AS from_address,
+        NULL AS to_address,
+        new_total_assets AS new_total_assets_raw
+      FROM accrue_interest_events
+      WHERE chain_id = ?
+        AND contract_address = ?
+        AND block_number > ?
+        AND block_number <= ?
+    )
+    ORDER BY block_number ASC, tx_index ASC, log_index ASC
+  `).all(
+    config.chainId,
+    config.contractAddress,
+    fromBlockExclusive,
+    toBlockInclusive,
+    config.chainId,
+    config.contractAddress,
+    fromBlockExclusive,
+    toBlockInclusive,
+    config.chainId,
+    config.contractAddress,
+    fromBlockExclusive,
+    toBlockInclusive,
+    config.chainId,
+    config.contractAddress,
+    fromBlockExclusive,
+    toBlockInclusive,
+  ) as Array<{
+    kind: "deposit" | "withdraw" | "transfer" | "accrue";
+    block_number: number;
+    tx_index: number;
+    log_index: number;
+    assets_raw: string | null;
+    shares_raw: string | null;
+    from_address: string | null;
+    to_address: string | null;
+    new_total_assets_raw: string | null;
+  }>;
+
+  function required(value: string | null, label: string): string {
+    if (value === null) {
+      throw new Error(`missing ${label} for snapshot adjustment event`);
+    }
+
+    return value;
+  }
+
+  return rows.map((row) => {
+    const base = {
+      blockNumber: row.block_number,
+      txIndex: row.tx_index,
+      logIndex: row.log_index,
+    };
+
+    switch (row.kind) {
+      case "deposit":
+      case "withdraw":
+        return {
+          ...base,
+          kind: row.kind,
+          assetsRaw: required(row.assets_raw, `${row.kind} assets`),
+        };
+      case "transfer":
+        return {
+          ...base,
+          kind: "transfer",
+          fromAddress: required(row.from_address, "transfer from address"),
+          toAddress: required(row.to_address, "transfer to address"),
+          sharesRaw: required(row.shares_raw, "transfer shares"),
+        };
+      case "accrue":
+        return {
+          ...base,
+          kind: "accrue",
+          newTotalAssetsRaw: required(
+            row.new_total_assets_raw,
+            "accrue new total assets",
+          ),
+        };
+    }
+  });
+}
+
+function subtractNonnegative(
+  current: bigint,
+  delta: bigint,
+  label: string,
+): bigint {
+  if (delta > current) {
+    throw new RangeError(`${label} adjustment would make vault totals negative`);
+  }
+
+  return current - delta;
+}
+
+export function readSnapshotAdjustedThroughBlock(
+  db: Database.Database,
+  config: AppConfig,
+  snapshot: Snapshot,
+  toBlockInclusive: number,
+): Snapshot {
+  const events = readSnapshotAdjustmentEvents(
+    db,
+    config,
+    snapshot.blockNumber,
+    toBlockInclusive,
+  );
+
+  if (events.length === 0) {
+    return snapshot;
+  }
+
+  let totalAssetsRaw = BigInt(snapshot.totalAssetsRaw);
+  let totalSupplyRaw = BigInt(snapshot.totalSupplyRaw);
+  let adjustedBlockNumber = snapshot.blockNumber;
+
+  for (const event of events) {
+    adjustedBlockNumber = event.blockNumber;
+
+    switch (event.kind) {
+      case "deposit":
+        totalAssetsRaw += BigInt(event.assetsRaw);
+        break;
+      case "withdraw":
+        totalAssetsRaw = subtractNonnegative(
+          totalAssetsRaw,
+          BigInt(event.assetsRaw),
+          "withdraw assets",
+        );
+        break;
+      case "transfer": {
+        const sharesRaw = BigInt(event.sharesRaw);
+
+        if (event.fromAddress === ZERO_ADDRESS) {
+          totalSupplyRaw += sharesRaw;
+        } else if (event.toAddress === ZERO_ADDRESS) {
+          totalSupplyRaw = subtractNonnegative(
+            totalSupplyRaw,
+            sharesRaw,
+            "burned shares",
+          );
+        }
+        break;
+      }
+      case "accrue":
+        totalAssetsRaw = BigInt(event.newTotalAssetsRaw);
+        break;
+    }
+  }
+
+  return {
+    blockNumber: adjustedBlockNumber,
+    totalAssetsRaw: totalAssetsRaw.toString(),
+    totalSupplyRaw: totalSupplyRaw.toString(),
+    capturedAt: snapshot.capturedAt,
   };
 }
 

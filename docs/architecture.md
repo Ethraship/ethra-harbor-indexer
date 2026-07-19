@@ -1,6 +1,6 @@
 # Architecture
 
-Last updated: 2026-07-18
+Last updated: 2026-07-20
 
 ## Stack
 
@@ -176,11 +176,24 @@ persisted vault crawler cursor. Snapshots above the cursor remain stored but
 pending until the crawler atomically processes their blocks and advances the
 cursor.
 
-This cursor gate applies to both account and vault valuation. It guarantees that
-a valuation snapshot never runs ahead of indexed logs without coupling the
-snapshot and crawler timers. `currentBlock` reports the newest observed snapshot
-block, while `valuationBlock` reports the eligible snapshot used for financial
-values.
+After selecting the cursor-eligible base snapshot, API valuation replays already
+processed vault-total-changing logs with `block_number > snapshot.block_number`
+and `block_number <= lastProcessedLogBlock` into an in-memory adjusted snapshot.
+The replay is ordered by `(block_number, transaction_index, log_index)` and uses:
+
+- `AccrueInterest.newTotalAssets` to refresh total assets at lazy accrual
+  points
+- `Deposit.assets` and `Withdraw.assets` to apply vault asset inflows/outflows
+- `Transfer` mints and burns to apply share supply changes, including lazy
+  performance-fee share mints
+
+This cursor gate plus processed-log adjustment applies to both account and vault
+valuation. It guarantees that a valuation snapshot never runs ahead of indexed
+logs, and that indexed fee-mint logs do not run ahead of valuation totals,
+without coupling the snapshot and crawler timers. `currentBlock` reports the
+newest observed snapshot block. `valuationBlock` reports the effective block of
+the adjusted valuation, while `valuationTime` remains the local capture time of
+the base snapshot.
 
 Share value is computed as:
 
@@ -188,7 +201,7 @@ Share value is computed as:
 
 with integer flooring, and zero when snapshot supply is zero.
 
-Account and vault valuation helpers then combine the eligible snapshot with
+Account and vault valuation helpers then combine the adjusted snapshot with
 local indexed state to derive share values, crystallized earned performance
 fee, gross generated yield, estimated net earned, estimated active deposit, and
 estimated performance fee at read time. For account responses,

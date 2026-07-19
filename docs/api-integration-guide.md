@@ -244,20 +244,21 @@ Field meanings:
 | Field | Type | Meaning |
 | --- | --- | --- |
 | `totalSupplyRaw` | string | Current indexed vault share supply from processed `Transfer` logs. Raw shares use 18 decimals. |
-| `totalAssetsRaw` | string or `null` | Vault `totalAssets()` from the selected valuation snapshot. Raw USDC uses 6 decimals. |
+| `totalAssetsRaw` | string or `null` | Vault assets from the selected valuation snapshot after replaying already-processed vault-total logs through `valuationBlock`. Raw USDC uses 6 decimals. |
 | `sharePriceScaledRaw` | string or `null` | `floor(totalAssetsRaw * sharePriceScale / totalSupplyRaw)`, or `"0"` when snapshot supply is zero. Display it as raw USDC per one whole vault share. |
 | `sharePriceScale` | string | Current share-price scale, always `"1000000000000000000"`. |
 | `cumulativePerformanceFeeSharesRaw` | string | Cumulative indexed performance-fee shares minted by `AccrueInterest`. |
-| `cumulativePerformanceFeeValueRaw` | string or `null` | Snapshot value of cumulative performance-fee shares in raw USDC. |
-| `valuationBlock` | number or `null` | Snapshot block used for valuation. It is never ahead of `lastProcessedLogBlock`. |
-| `valuationTime` | number or `null` | Local capture time for the valuation snapshot, in Unix milliseconds. |
+| `cumulativePerformanceFeeValueRaw` | string or `null` | Adjusted valuation value of cumulative performance-fee shares in raw USDC. |
+| `valuationBlock` | number or `null` | Effective block used for valuation. It starts from the newest cursor-eligible snapshot and may advance through already-processed logs after that snapshot. It is never ahead of `lastProcessedLogBlock`. |
+| `valuationTime` | number or `null` | Local capture time for the base valuation snapshot, in Unix milliseconds. |
 | `blockContext.currentBlock` | number or `null` | Newest observed snapshot block, including snapshots not yet eligible for valuation. |
 | `blockContext.lastProcessedLogBlock` | number or `null` | Persisted vault crawler cursor. |
 
-Freshness rule: valuation uses the newest share-price snapshot whose block is
-less than or equal to `blockContext.lastProcessedLogBlock`. If
+Freshness rule: valuation starts with the newest share-price snapshot whose
+block is less than or equal to `blockContext.lastProcessedLogBlock`, then
+replays already-processed vault-total logs after that snapshot. If
 `blockContext.currentBlock` is ahead of `valuationBlock`, the snapshotter has
-observed a newer block that the crawler has not fully indexed yet.
+observed a newer block that is not yet part of the stable adjusted valuation.
 
 ## `GET /accounts/:address`
 
@@ -420,13 +421,13 @@ Field meanings:
 | `estimatedNetLifetimeEarned.performanceFeeRateBps` | string | Current single-vault performance fee rate used by the API, currently `"5000"`. |
 | `estimatedPerformanceFee.raw` | string or `null` | `grossLifetimeEarned.raw - estimatedNetLifetimeEarned.raw`. |
 | `earnedPerformanceFee.shares` | string | Crystallized performance-fee shares attributed to this account, including read-time settlement against the current indexed global fee index. |
-| `earnedPerformanceFee.valueRaw` | string or `null` | Snapshot value of `earnedPerformanceFee.shares` in raw USDC. |
+| `earnedPerformanceFee.valueRaw` | string or `null` | Adjusted valuation value of `earnedPerformanceFee.shares` in raw USDC. |
 | `blockContext.currentBlock` | number or `null` | Newest observed snapshot block. |
 | `blockContext.lastProcessedLogBlock` | number or `null` | Persisted vault crawler cursor used to gate valuation. |
 | `blockContext.lastPerformanceFeeMintBlock` | number or `null` | Latest processed `AccrueInterest` block with nonzero performance-fee shares. |
-| `blockContext.blocksSincePerformanceFeeMint` | number or `null` | `currentBlock - lastPerformanceFeeMintBlock` when both values exist. |
-| `valuationBlock` | number or `null` | Snapshot block used for valuation. |
-| `valuationTime` | number or `null` | Local capture time for the valuation snapshot, in Unix milliseconds. |
+| `blockContext.blocksSincePerformanceFeeMint` | number or `null` | Freshest local block reference minus `lastPerformanceFeeMintBlock`, using the greater of `currentBlock` and `lastProcessedLogBlock` when both exist. |
+| `valuationBlock` | number or `null` | Effective block used for valuation. It starts from a cursor-eligible snapshot and may advance through already-processed logs after that snapshot. |
+| `valuationTime` | number or `null` | Local capture time for the base valuation snapshot, in Unix milliseconds. |
 
 AI integration note: use `activeDeposit.valueRaw` for the user's current active
 deposit and `estimatedNetLifetimeEarned.raw` or `lifetimeEarned.raw` for

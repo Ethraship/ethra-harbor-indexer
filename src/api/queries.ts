@@ -6,6 +6,7 @@ import {
   readLastPerformanceFeeMintBlock,
   readLatestSnapshot,
   readLatestSnapshotAtOrBefore,
+  readSnapshotAdjustedThroughBlock,
   readVaultCursor,
   readVaultStateSnapshot,
 } from "../db";
@@ -93,13 +94,18 @@ function blockContext(
   lastProcessedLogBlock: number | null,
   lastPerformanceFeeMintBlock: number | null,
 ): AccountMetricsResponse["blockContext"] {
+  const performanceFeeReferenceBlock =
+    currentBlock !== null && lastProcessedLogBlock !== null
+      ? Math.max(currentBlock, lastProcessedLogBlock)
+      : currentBlock ?? lastProcessedLogBlock;
+
   return {
     currentBlock,
     lastProcessedLogBlock,
     lastPerformanceFeeMintBlock,
     blocksSincePerformanceFeeMint:
-      currentBlock !== null && lastPerformanceFeeMintBlock !== null
-        ? currentBlock - lastPerformanceFeeMintBlock
+      performanceFeeReferenceBlock !== null && lastPerformanceFeeMintBlock !== null
+        ? performanceFeeReferenceBlock - lastPerformanceFeeMintBlock
         : null,
   };
 }
@@ -110,10 +116,19 @@ function readValuationSnapshotContext(
 ): ValuationSnapshotContext {
   const latestObservedSnapshot = readLatestSnapshot(db);
   const lastProcessedLogBlock = readVaultCursor(db, config);
-  const valuationSnapshot =
+  const baseValuationSnapshot =
     lastProcessedLogBlock === null
       ? null
       : readLatestSnapshotAtOrBefore(db, lastProcessedLogBlock);
+  const valuationSnapshot =
+    baseValuationSnapshot === null || lastProcessedLogBlock === null
+      ? null
+      : readSnapshotAdjustedThroughBlock(
+          db,
+          config,
+          baseValuationSnapshot,
+          lastProcessedLogBlock,
+        );
 
   return {
     currentBlock: latestObservedSnapshot?.blockNumber ?? null,
