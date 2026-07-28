@@ -53,9 +53,15 @@ function writeJson(
   response: http.ServerResponse,
   statusCode: number,
   body: unknown,
+  includeBody = true,
 ): void {
   response.statusCode = statusCode;
   response.setHeader("Content-Type", "application/json");
+  if (!includeBody) {
+    response.end();
+    return;
+  }
+
   response.end(JSON.stringify(body));
 }
 
@@ -95,7 +101,7 @@ export function createApiServer(dependencies: ApiServerDependencies): http.Serve
 
     const url = new URL(request.url, "http://127.0.0.1");
 
-    if (request.method !== "GET") {
+    if (request.method !== "GET" && request.method !== "HEAD") {
       writeJson(response, 404, { error: "not found" });
       return;
     }
@@ -107,6 +113,7 @@ export function createApiServer(dependencies: ApiServerDependencies): http.Serve
     if (url.pathname === "/health") {
       const cursorBlock = readVaultCursor(db, config);
       const safeHead = health?.safeHead ?? null;
+      const isHead = request.method === "HEAD";
 
       writeJson(response, 200, {
         status: "ok",
@@ -115,7 +122,7 @@ export function createApiServer(dependencies: ApiServerDependencies): http.Serve
         safeHeadKnown: safeHead !== null,
         syncedToSafeHead:
           cursorBlock !== null && safeHead !== null && cursorBlock >= safeHead,
-      });
+      }, !isHead);
       return;
     }
 
