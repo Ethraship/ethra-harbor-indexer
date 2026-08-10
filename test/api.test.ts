@@ -1256,3 +1256,314 @@ test("api health reports safe head sync status when crawler state is known", asy
     syncedToSafeHead: true,
   });
 });
+
+const ADMIN_ADDRESS = "0x5555555555555555555555555555555555555555";
+const ADMIN_CURSOR_BLOCK = 100;
+
+function seedReadyAdminDatabase(db: ReturnType<typeof openDatabase>, config: ReturnType<typeof createConfig>): void {
+  runMigrations(db);
+  getOrCreateVaultCursor(db, config);
+  db.prepare("UPDATE indexer_state SET last_scanned_block = ?").run(ADMIN_CURSOR_BLOCK);
+  upsertVaultState(db, config, {
+    globalIndexRaw: "0",
+    totalSupplyRaw: "1000000000000000000",
+    cumulativePerfFeeSharesRaw: "0",
+    cumulativeMgmtFeeSharesRaw: "0",
+    updatedBlockNumber: ADMIN_CURSOR_BLOCK,
+  });
+  upsertAccountPosition(db, {
+    address: ADMIN_ADDRESS,
+    balanceRaw: "1000000000000000000",
+    rewardDebtRaw: "0",
+    earnedPerfFeeSharesRaw: "0",
+    lifetimeDepositedRaw: "1000000",
+    lifetimeWithdrawnRaw: "0",
+    updatedBlockNumber: ADMIN_CURSOR_BLOCK,
+    updatedLogIndex: 0,
+  });
+  insertSnapshot(db, {
+    blockNumber: ADMIN_CURSOR_BLOCK,
+    totalAssetsRaw: "3000000",
+    totalSupplyRaw: "1000000000000000000",
+    capturedAt: 1,
+  });
+}
+
+function setAdminEstimatedFee(db: ReturnType<typeof openDatabase>, feeRaw: bigint): void {
+  db.prepare("UPDATE share_price_snapshots SET total_assets_raw = ?").run(
+    (1_000_000n + feeRaw * 2n).toString(),
+  );
+}
+
+async function closeApiTestServer(
+  server: ReturnType<typeof createApiServer>,
+  db: ReturnType<typeof openDatabase>,
+): Promise<void> {
+  await new Promise<void>((resolve, reject) => {
+    server.close((error) => {
+      if (error) {
+        reject(error);
+        return;
+      }
+
+      resolve();
+    });
+  });
+  closeDatabase(db);
+}
+
+test("admin routes are 404 when ADMIN_API_TOKEN is unset", async (t) => {
+  const db = openDatabase(":memory:");
+  const config = createConfig();
+  const server = createApiServer({ db, config, health: { safeHead: 1 } });
+  t.after(() => closeApiTestServer(server, db));
+  runMigrations(db);
+
+  const baseUrl = await startServer(server);
+  const response = await fetch(`${baseUrl}/admin/boost/base`, {
+    method: "PUT",
+    body: JSON.stringify({ baseBoostBps: "50000" }),
+  });
+
+  assert.equal(response.status, 404);
+  assert.deepEqual(await response.json(), { error: "not found" });
+});
+
+test("enabled admin routes require bearer token", async (t) => {
+  const db = openDatabase(":memory:");
+  const config = createConfig({ ADMIN_API_TOKEN: "secret" });
+  const server = createApiServer({ db, config, health: { safeHead: 1 } });
+  t.after(() => closeApiTestServer(server, db));
+  runMigrations(db);
+
+  const baseUrl = await startServer(server);
+  const [missingToken, wrongToken] = await Promise.all([
+    fetch(`${baseUrl}/admin/boost/base`, {
+      method: "PUT",
+      body: JSON.stringify({ baseBoostBps: "50000" }),
+    }),
+    fetch(`${baseUrl}/admin/boost/base`, {
+      method: "PUT",
+      headers: { Authorization: "Bearer wrong" },
+      body: JSON.stringify({ baseBoostBps: "50000" }),
+    }),
+  ]);
+
+  assert.equal(missingToken.status, 401);
+  assert.equal(wrongToken.status, 401);
+  assert.deepEqual(await missingToken.json(), { error: "unauthorized" });
+  assert.deepEqual(await wrongToken.json(), { error: "unauthorized" });
+});
+
+test("PUT base boost settles and updates config when ready", async (t) => {
+  const db = openDatabase(":memory:");
+  const config = createConfig({ ADMIN_API_TOKEN: "secret" });
+  seedReadyAdminDatabase(db, config);
+  const server = createApiServer({
+    db,
+    config,
+    health: { safeHead: ADMIN_CURSOR_BLOCK },
+  });
+  t.after(() => closeApiTestServer(server, db));
+
+  const baseUrl = await startServer(server);
+  const response = await fetch(`${baseUrl}/admin/boost/base`, {
+    method: "PUT",
+    headers: {
+      Authorization: "Bearer secret",
+      "Content-Type": "application/json",
+    },
+    body: JSON.stringify({ baseBoostBps: "50000" }),
+  });
+
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), { status: "ok" });
+
+  const accountResponse = await fetch(`${baseUrl}/accounts/${ADMIN_ADDRESS}`);
+  const account = await accountResponse.json();
+  assert.equal(account.boost.baseBoostBps, "50000");
+  assert.equal(account.vship.crystallizedRaw, "80000000");
+  assert.equal(account.vship.feeWatermarkRaw, "1000000");
+
+  const [changesResponse, settlementsResponse] = await Promise.all([
+    fetch(`${baseUrl}/admin/boost/changes`, {
+      headers: { Authorization: "Bearer secret" },
+    }),
+    fetch(`${baseUrl}/admin/vship/settlements/${ADMIN_ADDRESS}`, {
+      headers: { Authorization: "Bearer secret" },
+    }),
+  ]);
+  const changes = await changesResponse.json();
+  const settlements = await settlementsResponse.json();
+
+  assert.equal(changesResponse.status, 200);
+  assert.equal(settlementsResponse.status, 200);
+  assert.equal(changes.length, 1);
+  assert.equal(settlements.length, 1);
+});
+
+test("PUT boost returns 409 when indexer not ready", async (t) => {
+  const db = openDatabase(":memory:");
+  const config = createConfig({ ADMIN_API_TOKEN: "secret" });
+  seedReadyAdminDatabase(db, config);
+  const server = createApiServer({ db, config, health: { safeHead: null } });
+  t.after(() => closeApiTestServer(server, db));
+
+  const baseUrl = await startServer(server);
+  const response = await fetch(`${baseUrl}/admin/boost/base`, {
+    method: "PUT",
+    headers: { Authorization: "Bearer secret" },
+    body: JSON.stringify({ baseBoostBps: "50000" }),
+  });
+
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), { error: "indexer not ready" });
+});
+
+test("PUT boost returns 409 when fee mint is stale", async (t) => {
+  const db = openDatabase(":memory:");
+  const config = createConfig({ ADMIN_API_TOKEN: "secret" });
+  seedReadyAdminDatabase(db, config);
+  db.prepare("UPDATE reward_config SET fee_mint_stale_blocks = ?").run(5);
+  insertAccrueInterestEvent(db, {
+    chainId: config.chainId,
+    contractAddress: config.contractAddress,
+    blockNumber: ADMIN_CURSOR_BLOCK - 5,
+    blockHash: "0xblock",
+    txHash: "0xtx",
+    txIndex: 0,
+    logIndex: 0,
+    previousTotalAssets: "0",
+    newTotalAssets: "0",
+    performanceFeeShares: "1",
+    managementFeeShares: "0",
+    totalSupplyBeforeRaw: "0",
+    globalIndexAfterRaw: "0",
+    rawLogJson: "{}",
+    createdAt: 1,
+  });
+  const server = createApiServer({
+    db,
+    config,
+    health: { safeHead: ADMIN_CURSOR_BLOCK },
+  });
+  t.after(() => closeApiTestServer(server, db));
+
+  const baseUrl = await startServer(server);
+  const response = await fetch(`${baseUrl}/admin/boost/base`, {
+    method: "PUT",
+    headers: { Authorization: "Bearer secret" },
+    body: JSON.stringify({ baseBoostBps: "50000" }),
+  });
+
+  assert.equal(response.status, 409);
+  assert.deepEqual(await response.json(), { error: "fee mint is stale" });
+});
+
+test("GET admin history endpoints return newest-first rows", async (t) => {
+  const db = openDatabase(":memory:");
+  const config = createConfig({ ADMIN_API_TOKEN: "secret" });
+  seedReadyAdminDatabase(db, config);
+  const server = createApiServer({
+    db,
+    config,
+    health: { safeHead: ADMIN_CURSOR_BLOCK },
+  });
+  t.after(() => closeApiTestServer(server, db));
+
+  const baseUrl = await startServer(server);
+  const headers = {
+    Authorization: "Bearer secret",
+    "Content-Type": "application/json",
+  };
+  await fetch(`${baseUrl}/admin/boost/wallets/${ADMIN_ADDRESS}`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({ additionalBoostBps: "100000" }),
+  });
+  setAdminEstimatedFee(db, 2_000_000n);
+  await fetch(`${baseUrl}/admin/boost/wallets/${ADMIN_ADDRESS}`, {
+    method: "PUT",
+    headers,
+    body: JSON.stringify({ additionalBoostBps: "200000" }),
+  });
+
+  const [changesResponse, settlementsResponse] = await Promise.all([
+    fetch(`${baseUrl}/admin/boost/changes`, { headers }),
+    fetch(`${baseUrl}/admin/vship/settlements/${ADMIN_ADDRESS}`, { headers }),
+  ]);
+  const changes = await changesResponse.json();
+  const settlements = await settlementsResponse.json();
+
+  assert.equal(changesResponse.status, 200);
+  assert.equal(settlementsResponse.status, 200);
+  assert.equal(changes[0].oldBps, "100000");
+  assert.equal(changes[0].newBps, "200000");
+  assert.equal(typeof changes[0].oldBps, "string");
+  assert.equal(typeof changes[0].newBps, "string");
+  assert.equal(settlements[0].feeBeforeRaw, "1000000");
+  assert.equal(settlements[0].feeAfterRaw, "2000000");
+  assert.equal(settlements[0].feeDeltaRaw, "1000000");
+  assert.equal(settlements[0].boostBpsApplied, "140000");
+  assert.equal(settlements[0].vshipMintedRaw, "280000000");
+  assert.equal(settlements[0].crystallizedVshipAfterRaw, "360000000");
+  assert.equal(typeof settlements[0].feeBeforeRaw, "string");
+  assert.equal(typeof settlements[0].feeAfterRaw, "string");
+  assert.equal(typeof settlements[0].feeDeltaRaw, "string");
+  assert.equal(typeof settlements[0].boostBpsApplied, "string");
+  assert.equal(typeof settlements[0].vshipMintedRaw, "string");
+  assert.equal(typeof settlements[0].crystallizedVshipAfterRaw, "string");
+});
+
+test("PUT transaction failure returns 500 and rolls back all reward writes", async (t) => {
+  const db = openDatabase(":memory:");
+  const config = createConfig({ ADMIN_API_TOKEN: "secret" });
+  seedReadyAdminDatabase(db, config);
+  db.exec(`
+    CREATE TRIGGER abort_reward_config_update
+    BEFORE UPDATE ON reward_config
+    BEGIN
+      SELECT RAISE(ABORT, 'stop update');
+    END;
+  `);
+  const server = createApiServer({
+    db,
+    config,
+    health: { safeHead: ADMIN_CURSOR_BLOCK },
+  });
+  t.after(() => closeApiTestServer(server, db));
+
+  const baseUrl = await startServer(server);
+  const response = await fetch(`${baseUrl}/admin/boost/base`, {
+    method: "PUT",
+    headers: { Authorization: "Bearer secret" },
+    body: JSON.stringify({ baseBoostBps: "50000" }),
+  });
+
+  assert.equal(response.status, 500);
+  assert.deepEqual(await response.json(), { error: "internal server error" });
+  assert.equal(
+    (db.prepare("SELECT base_boost_bps FROM reward_config WHERE id = 1").get() as {
+      base_boost_bps: string;
+    }).base_boost_bps,
+    "40000",
+  );
+  assert.equal(
+    (db.prepare("SELECT COUNT(*) AS count FROM wallet_vship_state").get() as {
+      count: number;
+    }).count,
+    0,
+  );
+  assert.equal(
+    (db.prepare("SELECT COUNT(*) AS count FROM boost_change_events").get() as {
+      count: number;
+    }).count,
+    0,
+  );
+  assert.equal(
+    (db.prepare("SELECT COUNT(*) AS count FROM vship_settlement_events").get() as {
+      count: number;
+    }).count,
+    0,
+  );
+});

@@ -7,7 +7,13 @@ import type Database from "better-sqlite3";
 
 import type { AppConfig } from "../config";
 import { readVaultCursor } from "../db";
+import {
+  handleAdminRequest,
+  InvalidAdminRequestError,
+  requireAdminAuth,
+} from "./admin";
 import { getAccountMetrics, getVaultMetrics } from "./queries";
+import { MutationNotReadyError, StaleFeeMintError } from "../rewards/settle";
 
 const DASHBOARD_ROOT = join(process.cwd(), "public");
 const DASHBOARD_ASSETS = new Map<string, { fileName: string; contentType: string }>([
@@ -92,8 +98,9 @@ function tryWriteDashboardAsset(
 
 export function createApiServer(dependencies: ApiServerDependencies): http.Server {
   const { db, config, health } = dependencies;
+  const adminEnabled = config.adminApiToken !== null;
 
-  return http.createServer((request, response) => {
+  return http.createServer(async (request, response) => {
     if (!request.url) {
       writeJson(response, 404, { error: "not found" });
       return;
@@ -101,8 +108,48 @@ export function createApiServer(dependencies: ApiServerDependencies): http.Serve
 
     const url = new URL(request.url, "http://127.0.0.1");
 
-    if (request.method !== "GET" && request.method !== "HEAD") {
+    if (
+      request.method !== "GET" &&
+      request.method !== "HEAD" &&
+      request.method !== "PUT"
+    ) {
       writeJson(response, 404, { error: "not found" });
+      return;
+    }
+
+    if (url.pathname.startsWith("/admin")) {
+      if (!adminEnabled) {
+        writeJson(response, 404, { error: "not found" });
+        return;
+      }
+      if (!requireAdminAuth(request, config.adminApiToken!)) {
+        writeJson(response, 401, { error: "unauthorized" });
+        return;
+      }
+
+      try {
+        const handled = await handleAdminRequest(
+          request,
+          response,
+          db,
+          config,
+          health?.safeHead ?? null,
+          url.pathname,
+        );
+        if (!handled) {
+          writeJson(response, 404, { error: "not found" });
+        }
+      } catch (error) {
+        if (error instanceof InvalidAdminRequestError) {
+          writeJson(response, 400, { error: "invalid request" });
+        } else if (error instanceof MutationNotReadyError) {
+          writeJson(response, 409, { error: "indexer not ready" });
+        } else if (error instanceof StaleFeeMintError) {
+          writeJson(response, 409, { error: "fee mint is stale" });
+        } else {
+          writeJson(response, 500, { error: "internal server error" });
+        }
+      }
       return;
     }
 
