@@ -1,10 +1,10 @@
 # API Integration Guide
 
-Last updated: 2026-07-18
+Last updated: 2026-08-11
 
 This guide is written for AI agents and service clients that consume the Ethra
-Harbor Indexer API. The API is read-only, JSON over HTTP, and exposes indexed
-metrics for one Base Morpho Vault V2:
+Harbor Indexer API. Public routes are read-only JSON over HTTP and expose
+indexed metrics for one Base Morpho Vault V2:
 
 `0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d`
 
@@ -19,8 +19,13 @@ configured with `API_PORT`.
 
 ## Integration Rules For AI Clients
 
-- Use `GET` only. Non-GET requests return `404`.
-- Send no request body. Query parameters are ignored by the current handlers.
+- Use `GET` for public health, vault, account, and dashboard routes. Non-GET
+  requests to those routes return `404`.
+- Optional `/admin/*` routes are separate operator endpoints; they are available
+  only when `ADMIN_API_TOKEN` is non-empty and require `Authorization: Bearer
+  <token>`.
+- Send no request body to public GET routes. Query parameters are ignored by
+  the current public handlers.
 - Treat every raw token, share, and fee amount as an integer string. Parse these
   fields with `BigInt`, arbitrary-precision decimal math, or keep them as
   strings. Do not parse them as JavaScript `number`.
@@ -29,7 +34,9 @@ configured with `API_PORT`.
   eligible share-price snapshot.
 - Unknown but valid wallet addresses return `200` with zero metrics.
 - Invalid wallet addresses return `400` with `{ "error": "invalid address" }`.
-- The API reads from SQLite only. Request handlers do not make live RPC calls.
+- Public request handlers read from SQLite only and do not make live RPC calls.
+  Admin mutations write local reward tables only; they never submit chain
+  transactions.
 
 ## Units And Formatting
 
@@ -51,6 +58,10 @@ strings. They intentionally avoid JSON floating-point precision loss.
 | `GET` | `/health` | `200` | `application/json` | Service and crawler freshness |
 | `GET` | `/vault` | `200` | `application/json` | Vault-level supply, valuation, share price, and fee totals |
 | `GET` | `/accounts/:address` | `200` or `400` | `application/json` | Metrics for one wallet address |
+| `PUT` | `/admin/boost/base` | `200`, `400`, `401`, `404`, `409`, or `500` | `application/json` | Authenticated local base-boost mutation (token required) |
+| `PUT` | `/admin/boost/wallets/:address` | `200`, `400`, `401`, `404`, `409`, or `500` | `application/json` | Authenticated local wallet-boost mutation (token required) |
+| `GET` | `/admin/boost/changes` | `200`, `401`, or `404` | `application/json` | Authenticated newest-first boost history (token required) |
+| `GET` | `/admin/vship/settlements/:address` | `200`, `400`, `401`, or `404` | `application/json` | Authenticated newest-first settlement history (token required) |
 | `GET` | `/dashboard` | `200` | `text/html; charset=utf-8` | Local browser dashboard |
 | `GET` | `/dashboard/` | `200` | `text/html; charset=utf-8` | Local browser dashboard |
 | `GET` | `/dashboard/styles.css` | `200` | `text/css; charset=utf-8` | Dashboard stylesheet |
@@ -125,6 +136,19 @@ interface AccountMetricsResponse {
   };
   estimatedPerformanceFee: {
     raw: IntegerString | null;
+  };
+  boost: {
+    baseBoostBps: IntegerString;
+    additionalBoostBps: IntegerString;
+    totalBoostBps: IntegerString;
+  };
+  vship: {
+    crystallizedRaw: IntegerString;
+    pendingRaw: IntegerString;
+    totalRaw: IntegerString;
+    feeWatermarkRaw: IntegerString;
+    priceUsdRaw: IntegerString;
+    priceUsdDecimals: number;
   };
   earnedPerformanceFee: {
     shares: IntegerString;
@@ -305,6 +329,19 @@ Response shape with an eligible snapshot:
   "estimatedPerformanceFee": {
     "raw": "575000"
   },
+  "boost": {
+    "baseBoostBps": "40000",
+    "additionalBoostBps": "0",
+    "totalBoostBps": "40000"
+  },
+  "vship": {
+    "crystallizedRaw": "0",
+    "pendingRaw": "46000000",
+    "totalRaw": "46000000",
+    "feeWatermarkRaw": "0",
+    "priceUsdRaw": "50000",
+    "priceUsdDecimals": 6
+  },
   "earnedPerformanceFee": {
     "shares": "300000000000000000",
     "valueRaw": "450000"
@@ -347,6 +384,19 @@ Response shape before an eligible snapshot exists:
   },
   "estimatedPerformanceFee": {
     "raw": null
+  },
+  "boost": {
+    "baseBoostBps": "40000",
+    "additionalBoostBps": "0",
+    "totalBoostBps": "40000"
+  },
+  "vship": {
+    "crystallizedRaw": "0",
+    "pendingRaw": "0",
+    "totalRaw": "0",
+    "feeWatermarkRaw": "0",
+    "priceUsdRaw": "50000",
+    "priceUsdDecimals": 6
   },
   "earnedPerformanceFee": {
     "shares": "60000000000000000",
@@ -391,6 +441,19 @@ Unknown valid account example with an eligible snapshot:
   "estimatedPerformanceFee": {
     "raw": "0"
   },
+  "boost": {
+    "baseBoostBps": "40000",
+    "additionalBoostBps": "0",
+    "totalBoostBps": "40000"
+  },
+  "vship": {
+    "crystallizedRaw": "0",
+    "pendingRaw": "0",
+    "totalRaw": "0",
+    "feeWatermarkRaw": "0",
+    "priceUsdRaw": "50000",
+    "priceUsdDecimals": 6
+  },
   "earnedPerformanceFee": {
     "shares": "0",
     "valueRaw": "0"
@@ -420,6 +483,15 @@ Field meanings:
 | `estimatedNetLifetimeEarned.raw` | string or `null` | Estimated user-kept net earned amount after applying `performanceFeeRateBps` to gross lifetime earned. |
 | `estimatedNetLifetimeEarned.performanceFeeRateBps` | string | Current single-vault performance fee rate used by the API, currently `"5000"`. |
 | `estimatedPerformanceFee.raw` | string or `null` | `grossLifetimeEarned.raw - estimatedNetLifetimeEarned.raw`. |
+| `boost.baseBoostBps` | string | Indexer-wide base boost; defaults to `"40000"` (4x). |
+| `boost.additionalBoostBps` | string | Per-wallet additive boost; missing wallet state is `"0"`. |
+| `boost.totalBoostBps` | string | `baseBoostBps + additionalBoostBps`. |
+| `vship.crystallizedRaw` | string | vSHIP already crystallized by an authenticated boost change settlement. |
+| `vship.pendingRaw` | string | vSHIP estimated from the positive fee delta above `feeWatermarkRaw` at the current total boost. It is `"0"` when valuation is unavailable or the fee dips. |
+| `vship.totalRaw` | string | `crystallizedRaw + pendingRaw`. |
+| `vship.feeWatermarkRaw` | string | Sticky estimated-performance-fee watermark used for soft crystallization; it never decreases on a fee dip. |
+| `vship.priceUsdRaw` | string | Fixed seeded vSHIP price, `"50000"` raw USD units at 6 decimals (`$0.05`). There is no admin price route. |
+| `vship.priceUsdDecimals` | number | Decimal places for `priceUsdRaw`, currently `6`. |
 | `earnedPerformanceFee.shares` | string | Crystallized performance-fee shares attributed to this account, including read-time settlement against the current indexed global fee index. |
 | `earnedPerformanceFee.valueRaw` | string or `null` | Adjusted valuation value of `earnedPerformanceFee.shares` in raw USDC. |
 | `blockContext.currentBlock` | number or `null` | Newest observed snapshot block. |
@@ -432,7 +504,93 @@ Field meanings:
 AI integration note: use `activeDeposit.valueRaw` for the user's current active
 deposit and `estimatedNetLifetimeEarned.raw` or `lifetimeEarned.raw` for
 user-kept earnings language. `grossLifetimeEarned.raw` is only supporting
-analytics for explaining yield before the modeled performance-fee split.
+analytics for explaining yield before the modeled performance-fee split. Treat
+vSHIP as indexer accounting, not an on-chain mint or a dashboard balance.
+
+## Optional Admin Routes
+
+Admin routes are registered only when `ADMIN_API_TOKEN` is present and
+non-empty. Without a configured token, every `/admin/*` request returns `404`.
+When enabled, every admin request requires the exact header
+`Authorization: Bearer <token>`; a missing or incorrect token returns `401`.
+
+### `PUT /admin/boost/base`
+
+Body:
+
+```json
+{
+  "baseBoostBps": "50000"
+}
+```
+
+`baseBoostBps` must be a non-negative decimal integer string. On a changed
+value, the server settles every eligible wallet at the old total boost, writes
+the new base value, and records a boost-change event in one SQLite transaction.
+An identical value is a no-op. Success returns `200` with
+`{ "status": "ok" }`.
+
+### `PUT /admin/boost/wallets/:address`
+
+Body:
+
+```json
+{
+  "additionalBoostBps": "100000"
+}
+```
+
+The address must pass `ethers.getAddress`; the value must be a non-negative
+decimal integer string. A changed value settles that wallet at the old total
+boost before writing the additive boost and audit event. Success returns
+`200` with `{ "status": "ok" }`.
+
+Both mutation routes require all of the following readiness conditions:
+
+- a crawler-observed safe head exists;
+- the persisted cursor is at or beyond that safe head; and
+- a usable cursor-eligible valuation snapshot exists.
+
+If any condition is missing, the response is `409` with
+`{ "error": "indexer not ready" }`. A second `409` gate rejects mutations when
+the freshest local block reference is at least `fee_mint_stale_blocks` blocks
+after the latest nonzero performance-fee mint. The default threshold is
+`20000`, and the stale response is `{ "error": "fee mint is stale" }`. Invalid
+bodies or addresses return `400`; unexpected SQLite/transaction errors return
+`500` with `{ "error": "internal server error" }` and roll back all reward
+writes.
+
+### `GET /admin/boost/changes`
+
+Returns newest-first boost-change rows. `oldBps` and `newBps` are decimal
+strings; `address` is `null` for a base change. Example:
+
+```json
+[
+  {
+    "id": 2,
+    "changedAt": 1712345600000,
+    "changeType": "wallet_additional",
+    "address": "0x1111111111111111111111111111111111111111",
+    "oldBps": "0",
+    "newBps": "100000",
+    "actor": "admin",
+    "settledWalletCount": 1
+  }
+]
+```
+
+### `GET /admin/vship/settlements/:address`
+
+Returns newest-first positive fee-delta settlement rows for the normalized
+address. `feeBeforeRaw`, `feeAfterRaw`, `feeDeltaRaw`, `boostBpsApplied`,
+`vshipMintedRaw`, and `crystallizedVshipAfterRaw` are all decimal strings. A
+zero fee delta updates sticky state if needed but does not create a settlement
+history row.
+
+These admin routes are local indexer controls and history reads only. They do
+not move the Morpho position, wire the dashboard, submit on-chain transactions,
+or change the fixed vSHIP price.
 
 ## Error Responses
 
@@ -484,6 +642,32 @@ Content-Type: application/json
 ```json
 {
   "error": "not found"
+}
+```
+
+Admin disabled:
+
+```http
+HTTP/1.1 404 Not Found
+Content-Type: application/json
+```
+
+```json
+{
+  "error": "not found"
+}
+```
+
+Admin authentication failure:
+
+```http
+HTTP/1.1 401 Unauthorized
+Content-Type: application/json
+```
+
+```json
+{
+  "error": "unauthorized"
 }
 ```
 

@@ -1,5 +1,16 @@
 # Evolution
 
+## 2026-08-11
+
+- Area: vSHIP boost accounting and admin API documentation
+- Changed: documented the additive boost reward tables, sticky fee-watermark
+  settlement semantics, extended account `boost`/`vship` fields, conditional
+  `ADMIN_API_TOKEN` routes, readiness and stale-fee `409` gates, decimal-string
+  admin history responses, and the nuke-and-reindex cutover.
+- Why: the backend now includes local vSHIP reward accounting and authenticated
+  operator controls while remaining indexer-only, with no dashboard wiring,
+  Morpho move, on-chain transaction submission, or admin price API.
+
 ## 2026-07-20
 
 - Area: account and vault valuation consistency

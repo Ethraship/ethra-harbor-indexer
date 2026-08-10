@@ -5,9 +5,11 @@ Morpho Vault V2-style contract at
 `0x9d2f57159eca69265a9b9efaaa8bc2b6b2df364d`.
 
 It crawls deterministic on-chain vault activity over HTTP JSON-RPC, stores
-replayable SQLite state, periodically snapshots vault valuation, and exposes a
-read-only HTTP API keyed only by wallet address. The same server also ships a
-small local dashboard for inspecting those read-only routes in a browser.
+replayable SQLite state, periodically snapshots vault valuation, and exposes
+public read-only metrics keyed only by wallet address. When `ADMIN_API_TOKEN` is
+configured, the same server also exposes authenticated local boost mutations and
+history reads. It ships a small local dashboard for inspecting public routes in
+a browser; dashboard boost/vSHIP wiring is out of scope.
 
 ## What It Indexes
 
@@ -37,7 +39,10 @@ For each wallet address, the backend exposes:
 6. Gross generated yield: `grossLifetimeEarned`
 7. Estimated user-kept net earned: `estimatedNetLifetimeEarned`
 8. Estimated total performance fee: `estimatedPerformanceFee`
-9. Freshness metadata: `blockContext`
+9. Additive boost: `boost.baseBoostBps`, `boost.additionalBoostBps`, and
+   `boost.totalBoostBps`
+10. Crystallized/pending vSHIP accounting: `vship`
+11. Freshness metadata: `blockContext`
 
 Vault-level reads expose current indexed total supply, adjusted valuation
 totals, share price, and cumulative attributable performance-fee totals.
@@ -69,6 +74,22 @@ user-kept net earnings. If the position is below principal, the API reports the
 lower snapshot share value so losses remain visible. The estimate assumes the
 current single-vault performance fee rate of `5000` bps and is surfaced
 alongside `blockContext` freshness metadata.
+
+## vSHIP Boost Accounting
+
+The reward migration adds `reward_config`, `wallet_boost`,
+`wallet_vship_state`, `boost_change_events`, and `vship_settlement_events`.
+Existing USDC event and vault-reward tables are unchanged. The seeded base boost
+is `40000` bps (4x), wallet boost is additive, and a missing wallet row means
+zero additional boost. vSHIP uses a fixed `$0.05` price (`50000` raw USD units,
+6 decimals); there is no admin price API.
+
+Boost changes soft-crystallize estimated performance-fee deltas at the old
+boost. The fee watermark is sticky on dips, so past vSHIP is never rewritten by
+a later boost and negative fee deltas never mint. Base changes eagerly settle
+all eligible wallets; wallet changes settle one wallet. Settlement, boost state,
+and audit rows commit in one SQLite transaction. Identical values are no-ops,
+and zero fee deltas do not create settlement history rows.
 
 ## Quickstart
 
@@ -130,8 +151,9 @@ Run `npm run build` again before reloading after code changes because PM2 runs
 | `START_BLOCK` | Initial cursor block for a fresh DB. | `48578254` | Seeds one block before deployment so the first scanned block is `48578255`. |
 | `CONFIRMATIONS` | Confirmation buffer before crawl. | `15` | Reorg posture is confirmation-buffer-only in v1. |
 | `SNAPSHOT_INTERVAL_MS` | Share-price snapshot cadence. | `60000` | Snapshotter retries on the same interval after errors. |
-| `API_ENABLED` | Enable the read-only HTTP API. | `true` | Any value other than `false` enables it. |
+| `API_ENABLED` | Enable the public HTTP API. | `true` | Any value other than `false` enables it. |
 | `API_PORT` | HTTP API listen port. | `8080` | Must be `1`-`65535`. |
+| `ADMIN_API_TOKEN` | Enable authenticated local boost/admin routes. | unset | Trimmed non-empty value enables `/admin/*`; unset, empty, or whitespace keeps them at `404`. |
 | `CHUNK_SIZE` | Maximum block span per crawl window. | `1000` | Smaller values help smoke tests and weaker RPCs. |
 | `BASE_BLOCK_TIME_MS` | Base block time estimate. | `2000` | Configured value used by the backend. |
 | `FAST_POLL_MS` | Poll delay while catching up. | `2000` | Applies in `auto`/`fast` modes. |
@@ -146,8 +168,9 @@ the trimmed entries are appended in order and used as explicit fallbacks for
 
 ## API
 
-The API is read-only and serves JSON plus a local static dashboard over built-in
-`node:http`.
+Public API routes are read-only and serve JSON plus a local static dashboard over
+built-in `node:http`. Optional authenticated `/admin/*` routes are local
+indexer controls; they do not submit chain transactions.
 
 For exact response shapes, field meanings, units, nullability, and AI/service
 client integration guidance, see
@@ -161,10 +184,26 @@ client integration guidance, see
   - Returns vault totals, adjusted valuation, scaled share price, and
     cumulative performance-fee totals
 - `GET /accounts/:address`
-  - Returns the per-address metrics, including estimated net earnings and
-    freshness metadata, for a checksum-valid wallet address
+  - Returns the per-address metrics, including estimated net earnings, additive
+    boost fields, vSHIP fields, and freshness metadata, for a checksum-valid
+    wallet address
+- `PUT /admin/boost/base`
+  - When `ADMIN_API_TOKEN` is configured, updates the base boost after readiness
+    and stale-fee gates; requires `Authorization: Bearer <token>`
+- `PUT /admin/boost/wallets/:address`
+  - When enabled, updates one wallet's additive boost with the same gates/auth
+- `GET /admin/boost/changes`
+  - When enabled, returns newest-first boost history with decimal-string bps
+- `GET /admin/vship/settlements/:address`
+  - When enabled, returns newest-first positive fee-delta settlement history
 
-Unknown routes return `404`. Invalid account addresses return `400`.
+When `ADMIN_API_TOKEN` is absent or blank, every `/admin/*` route returns `404`.
+With a configured token, missing or incorrect bearer auth returns `401`. Admin
+boost PUTs return `409` when safe-head/cursor/valuation readiness is missing or
+the performance-fee mint is stale (default threshold `20000` blocks); invalid
+input returns `400` and unexpected transaction failures return `500` with a full
+SQLite rollback. Unknown routes return `404`. Invalid public account addresses
+return `400`.
 
 ## Cursor, Replay, And Dev-Stage Reset
 
@@ -180,6 +219,10 @@ when the database has no existing cursor row. With the default seed
 This project is still in the dev-stage reset window. When schema/state changes
 break compatibility, delete the SQLite file and restart the service to re-crawl
 from `START_BLOCK`.
+
+The vSHIP boost cutover is nuke-and-reindex only. Delete the local SQLite file
+and reindex from `START_BLOCK`; there is no genesis reward backfill or dashboard
+backfill path.
 
 ```bash
 rm ./data/ethra-harbor-indexer.sqlite
@@ -202,6 +245,8 @@ sqlite3 ./data/ethra-harbor-indexer.sqlite "select last_scanned_block from index
   posture is the confirmation buffer only.
 - Wallet address is the only identity. There is no user-profile or multi-wallet
   aggregation layer in this service.
+- The indexer does not move Morpho positions, wire boost/vSHIP into the
+  dashboard, submit on-chain transactions, or expose an admin vSHIP price API.
 
 ## Scripts
 

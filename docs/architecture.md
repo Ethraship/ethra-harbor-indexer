@@ -1,6 +1,6 @@
 # Architecture
 
-Last updated: 2026-07-20
+Last updated: 2026-08-11
 
 ## Stack
 
@@ -11,8 +11,10 @@ Last updated: 2026-07-20
 - Local dashboard: static HTML/CSS/JavaScript served by `node:http`
 - Tests: `node:test` with `tsx`
 
-This is a backend service with a bundled read-only local dashboard. It does not
-include a separate frontend app, mobile, wallet UX, or user-profile systems.
+This is a backend service with a bundled local dashboard. Public HTTP routes are
+read-only; optional operator-only admin routes can write boost state when
+`ADMIN_API_TOKEN` is configured. It does not include a separate frontend app,
+mobile, wallet UX, or user-profile systems.
 
 ## Layers
 
@@ -39,8 +41,10 @@ include a separate frontend app, mobile, wallet UX, or user-profile systems.
    - Periodically reads `totalAssets()` and `totalSupply()` from chain and
      stores `share_price_snapshots`.
 7. `src/api/`
-   - Serves read-only JSON responses for health, vault metrics, and per-address
+   - Serves public JSON responses for health, vault metrics, and per-address
      metrics without mutating database state.
+   - When `ADMIN_API_TOKEN` is non-empty, also authenticates boost mutations and
+     history reads under `/admin/*`.
    - Serves known static dashboard assets from `public/` at `/dashboard`.
 8. `src/index.ts`
    - Bootstraps config, DB, provider, crawler, snapshotter, optional API
@@ -58,10 +62,12 @@ include a separate frontend app, mobile, wallet UX, or user-profile systems.
     ledger state, snapshots, and crawl errors.
   - API reads depend only on SQLite, never direct RPC calls.
 - Process boundary:
-  - The HTTP API is read-only. It does not write to DB, mutate cursors, or hit
-    RPC on request paths.
-  - The dashboard is static browser code. It calls the same read-only API routes
-    and has no direct SQLite or RPC access.
+  - Public HTTP request paths read SQLite only and do not mutate cursors or hit
+    RPC. The optional authenticated `/admin/*` mutation paths write only the
+    reward tables described below; they do not write chain state.
+  - The dashboard is static browser code. It calls the public GET routes and has
+    no direct SQLite, RPC, or admin-route access. Dashboard wiring for boost and
+    vSHIP is not part of this scope.
 
 ## Database Ownership
 
@@ -80,6 +86,11 @@ Owned tables:
 - `vault_reward_state`
 - `share_price_snapshots`
 - `crawl_errors`
+- `reward_config`
+- `wallet_boost`
+- `wallet_vship_state`
+- `boost_change_events`
+- `vship_settlement_events`
 
 `indexer_state` stores a vault-specific cursor id:
 
@@ -88,7 +99,9 @@ Owned tables:
 During this development stage, incompatible persisted-shape changes are handled
 by deleting the SQLite file and re-crawling from `START_BLOCK`. `runMigrations`
 already throws an explicit reset-required error when it sees the old
-deposit-only schema without the vault-position migration.
+deposit-only schema without the vault-position migration. The vSHIP boost
+cutover likewise requires a nuke and reindex of the local database; there is no
+genesis backfill or compatibility backfill for reward state.
 
 ## RPC Provider Behavior
 
@@ -161,6 +174,31 @@ Semantics:
 This keeps fee attribution replayable from chain logs without per-accrual
 fanout writes.
 
+## vSHIP Boost Accounting
+
+The reward migration is additive to the existing USDC/indexing tables. It seeds
+`reward_config` with a `40000` base boost (4x), a fixed vSHIP price of `50000`
+raw USD units (`$0.05` at 6 decimals), 6 vSHIP token decimals, and a
+`20000`-block stale fee-mint threshold. A missing `wallet_boost` row means zero
+additional boost. For every address:
+
+`totalBoostBps = baseBoostBps + additionalBoostBps`
+
+`wallet_vship_state` stores the fee watermark and crystallized vSHIP total.
+`boost_change_events` records changed base or wallet boost values, and
+`vship_settlement_events` records positive fee-delta settlements. All chain,
+USDC, boost, and vSHIP integers are strings at the SQLite/HTTP boundary and
+`bigint` in memory.
+
+Settlement is soft crystallization against the read-time estimated performance
+fee. A boost change settles using the old boost first, advances the watermark
+only when the fee does not dip, and never back-propagates a later boost into a
+previous segment. Fee dips therefore produce no negative mint. A base boost
+change eagerly settles every eligible wallet; a wallet boost change settles that
+wallet. The settle, boost write, and audit event are one SQLite transaction.
+Identical boost values are no-ops. `vship_settlement_events` is omitted when
+the fee delta is zero.
+
 ## Snapshot Flow
 
 1. `SharePriceSnapshotter` starts alongside the crawler.
@@ -228,7 +266,7 @@ The snapshotter has its own independent timer using `SNAPSHOT_INTERVAL_MS`.
 
 The API is optional (`API_ENABLED`) and listens on `API_PORT` when enabled.
 
-Endpoints:
+Public endpoints:
 
 - `GET /dashboard`
   - Serves the local HTML dashboard.
@@ -249,11 +287,33 @@ Endpoints:
 - `GET /accounts/:address`
   - Returns active deposit, lifetime deposit/withdraw totals, lifetime earned,
     earned performance fee, gross and estimated net earnings, estimated
-    performance fee, and freshness metadata
+    performance fee, additive `boost` fields, `vship` fields, and freshness
+    metadata
 
-API queries are read-only and intentionally avoid the mutating helpers that
-create cursor or vault-state rows. Dashboard static file serving is constrained
-to a fixed asset map and is not a general-purpose file server.
+Public API queries are read-only and intentionally avoid the mutating helpers
+that create cursor or vault-state rows. Dashboard static file serving is
+constrained to a fixed asset map and is not a general-purpose file server.
+
+When `ADMIN_API_TOKEN` is present and non-empty, the server additionally exposes
+these authenticated routes:
+
+- `PUT /admin/boost/base` with `{ "baseBoostBps": "..." }`
+- `PUT /admin/boost/wallets/:address` with `{ "additionalBoostBps": "..." }`
+- `GET /admin/boost/changes`
+- `GET /admin/vship/settlements/:address`
+
+Every enabled admin request requires `Authorization: Bearer <token>`. If the
+token is absent or blank, every `/admin/*` route returns `404`; with a token,
+missing or incorrect authentication returns `401`. Boost PUTs return `409`
+`{"error":"indexer not ready"}` unless a safe head is known, the cursor has
+reached it, and a usable valuation snapshot exists. They return `409`
+`{"error":"fee mint is stale"}` when the freshest local block reference is at
+least `fee_mint_stale_blocks` blocks after the latest nonzero performance-fee
+mint (default `20000`). Invalid bodies/addresses return `400`; unexpected
+transaction errors return `500` and SQLite rolls back all reward writes. Admin
+history responses serialize bigint fields as decimal strings. These routes
+change only local indexer accounting; they do not submit on-chain transactions
+or expose a vSHIP price administration API.
 
 Account reads do not hit the chain. They derive estimated net earnings at read
 time from local SQLite state plus the cursor-eligible valuation snapshot and the
@@ -280,5 +340,7 @@ SQLite file and re-crawl from `START_BLOCK`.
   at the persistence boundary and converted to `bigint` in memory.
 - API responses may have `null` valuation fields until the first snapshot is
   captured.
+- The vSHIP boost cutover requires deleting the local SQLite file and reindexing
+  from `START_BLOCK`; no historical reward backfill is performed.
 - The service expects a reliable HTTP RPC with archive access for historical
   backfill.
