@@ -13,6 +13,7 @@ import {
   openDatabase,
   runMigrations,
   upsertAccountPosition,
+  upsertWalletAdditionalBoostBps,
   upsertVaultState,
 } from "../src/db";
 import { SCALE } from "../src/indexer/ledger";
@@ -210,6 +211,19 @@ test("api serves account, vault, and health metrics from indexed state", async (
     estimatedPerformanceFee: {
       raw: "575000",
     },
+    boost: {
+      baseBoostBps: "40000",
+      additionalBoostBps: "0",
+      totalBoostBps: "40000",
+    },
+    vship: {
+      crystallizedRaw: "0",
+      pendingRaw: "46000000",
+      totalRaw: "46000000",
+      feeWatermarkRaw: "0",
+      priceUsdRaw: "50000",
+      priceUsdDecimals: 6,
+    },
     earnedPerformanceFee: {
       shares: "300000000000000000",
       valueRaw: "450000",
@@ -222,6 +236,115 @@ test("api serves account, vault, and health metrics from indexed state", async (
     },
     valuationBlock: 48700010,
     valuationTime: 1712345600,
+  });
+});
+
+test("account metrics include base boost and pending vSHIP from estimated fee", async (t) => {
+  const db = openDatabase(":memory:");
+  const config = createConfig();
+  const account = "0x1212121212121212121212121212121212121212";
+  const server = createApiServer({ db, config });
+
+  t.after(async () => {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+    closeDatabase(db);
+  });
+
+  runMigrations(db);
+  getOrCreateVaultCursor(db, config);
+  db.prepare("UPDATE indexer_state SET last_scanned_block = ?").run(48700010);
+  upsertVaultState(db, config, {
+    globalIndexRaw: "0",
+    totalSupplyRaw: "1000000000000000000",
+    cumulativePerfFeeSharesRaw: "0",
+    cumulativeMgmtFeeSharesRaw: "0",
+    updatedBlockNumber: 48700010,
+  });
+  upsertAccountPosition(db, {
+    address: account,
+    balanceRaw: "1000000000000000000",
+    rewardDebtRaw: "0",
+    earnedPerfFeeSharesRaw: "0",
+    lifetimeDepositedRaw: "0",
+    lifetimeWithdrawnRaw: "0",
+    updatedBlockNumber: 48700010,
+    updatedLogIndex: 0,
+  });
+  insertSnapshot(db, {
+    blockNumber: 48700010,
+    totalAssetsRaw: "2000000",
+    totalSupplyRaw: "1000000000000000000",
+    capturedAt: 1712345600,
+  });
+
+  const baseUrl = await startServer(server);
+  const response = await fetch(`${baseUrl}/accounts/${account}`);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+
+  assert.equal(body.estimatedPerformanceFee.raw, "1000000");
+  assert.deepEqual(body.boost, {
+    baseBoostBps: "40000",
+    additionalBoostBps: "0",
+    totalBoostBps: "40000",
+  });
+  assert.deepEqual(body.vship, {
+    crystallizedRaw: "0",
+    pendingRaw: "80000000",
+    totalRaw: "80000000",
+    feeWatermarkRaw: "0",
+    priceUsdRaw: "50000",
+    priceUsdDecimals: 6,
+  });
+});
+
+test("pre-deposit wallet_boost still returns additional boost with zero vSHIP", async (t) => {
+  const db = openDatabase(":memory:");
+  const config = createConfig();
+  const account = "0x3434343434343434343434343434343434343434";
+  const server = createApiServer({ db, config });
+
+  t.after(async () => {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+        resolve();
+      });
+    });
+    closeDatabase(db);
+  });
+
+  runMigrations(db);
+  upsertWalletAdditionalBoostBps(db, account, 100000n, 1);
+
+  const baseUrl = await startServer(server);
+  const response = await fetch(`${baseUrl}/accounts/${account}`);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+
+  assert.deepEqual(body.boost, {
+    baseBoostBps: "40000",
+    additionalBoostBps: "100000",
+    totalBoostBps: "140000",
+  });
+  assert.deepEqual(body.vship, {
+    crystallizedRaw: "0",
+    pendingRaw: "0",
+    totalRaw: "0",
+    feeWatermarkRaw: "0",
+    priceUsdRaw: "50000",
+    priceUsdDecimals: 6,
   });
 });
 
@@ -840,6 +963,19 @@ test("api GETs do not seed rows on a freshly migrated database", async (t) => {
     estimatedPerformanceFee: {
       raw: null,
     },
+    boost: {
+      baseBoostBps: "40000",
+      additionalBoostBps: "0",
+      totalBoostBps: "40000",
+    },
+    vship: {
+      crystallizedRaw: "0",
+      pendingRaw: "0",
+      totalRaw: "0",
+      feeWatermarkRaw: "0",
+      priceUsdRaw: "50000",
+      priceUsdDecimals: 6,
+    },
     earnedPerformanceFee: {
       shares: "0",
       valueRaw: null,
@@ -934,6 +1070,19 @@ test("api returns zeros for unknown accounts and 400 for invalid addresses", asy
     estimatedPerformanceFee: {
       raw: "0",
     },
+    boost: {
+      baseBoostBps: "40000",
+      additionalBoostBps: "0",
+      totalBoostBps: "40000",
+    },
+    vship: {
+      crystallizedRaw: "0",
+      pendingRaw: "0",
+      totalRaw: "0",
+      feeWatermarkRaw: "0",
+      priceUsdRaw: "50000",
+      priceUsdDecimals: 6,
+    },
     earnedPerformanceFee: {
       shares: "0",
       valueRaw: "0",
@@ -1023,6 +1172,19 @@ test("api returns raw metrics with null valuation fields when no snapshot exists
     },
     estimatedPerformanceFee: {
       raw: null,
+    },
+    boost: {
+      baseBoostBps: "40000",
+      additionalBoostBps: "0",
+      totalBoostBps: "40000",
+    },
+    vship: {
+      crystallizedRaw: "0",
+      pendingRaw: "0",
+      totalRaw: "0",
+      feeWatermarkRaw: "0",
+      priceUsdRaw: "50000",
+      priceUsdDecimals: 6,
     },
     earnedPerformanceFee: {
       shares: "60000000000000000",

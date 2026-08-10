@@ -11,6 +11,12 @@ import {
   readVaultStateSnapshot,
 } from "../db";
 import { settle, type AccountLedger, SCALE } from "../indexer/ledger";
+import {
+  readRewardConfig,
+  readWalletAdditionalBoostBps,
+  readWalletVshipState,
+} from "../db/rewards";
+import { calculateVShipRaw } from "../rewards/vshipMath";
 import { valueOfShares } from "../snapshot/sharePrice";
 
 const PERFORMANCE_FEE_RATE_BPS = 5000n;
@@ -40,6 +46,19 @@ export interface AccountMetricsResponse {
   };
   estimatedPerformanceFee: {
     raw: string | null;
+  };
+  boost: {
+    baseBoostBps: string;
+    additionalBoostBps: string;
+    totalBoostBps: string;
+  };
+  vship: {
+    crystallizedRaw: string;
+    pendingRaw: string;
+    totalRaw: string;
+    feeWatermarkRaw: string;
+    priceUsdRaw: string;
+    priceUsdDecimals: number;
   };
   earnedPerformanceFee: {
     shares: string;
@@ -207,6 +226,12 @@ export function getAccountMetrics(
   const position = readAccountPosition(db, address);
   const vaultState = readVaultStateSnapshot(db, config);
   const account = toAccountLedger(position);
+  const reward = readRewardConfig(db);
+  const additionalBoostBps = readWalletAdditionalBoostBps(db, address);
+  const totalBoostBps = reward.baseBoostBps + additionalBoostBps;
+  const vshipState = readWalletVshipState(db, address);
+  const feeWatermarkRaw = vshipState?.feeWatermarkRaw ?? 0n;
+  const crystallizedVshipRaw = vshipState?.crystallizedVshipRaw ?? 0n;
 
   settle(account, BigInt(vaultState.globalIndexRaw));
 
@@ -236,6 +261,19 @@ export function getAccountMetrics(
       estimatedPerformanceFee: {
         raw: null,
       },
+      boost: {
+        baseBoostBps: reward.baseBoostBps.toString(),
+        additionalBoostBps: additionalBoostBps.toString(),
+        totalBoostBps: totalBoostBps.toString(),
+      },
+      vship: {
+        crystallizedRaw: crystallizedVshipRaw.toString(),
+        pendingRaw: "0",
+        totalRaw: crystallizedVshipRaw.toString(),
+        feeWatermarkRaw: feeWatermarkRaw.toString(),
+        priceUsdRaw: reward.vshipPriceUsdRaw.toString(),
+        priceUsdDecimals: reward.vshipPriceUsdDecimals,
+      },
       earnedPerformanceFee: {
         shares: account.earnedPerfFeeSharesRaw.toString(),
         valueRaw: null,
@@ -253,6 +291,18 @@ export function getAccountMetrics(
       : valuation.grossActiveDepositValue;
   const activeDepositValue =
     estimatedActiveDepositValue > 0n ? estimatedActiveDepositValue : 0n;
+  const pendingFeeRaw =
+    valuation.estimatedPerformanceFee > feeWatermarkRaw
+      ? valuation.estimatedPerformanceFee - feeWatermarkRaw
+      : 0n;
+  const pendingVshipRaw = calculateVShipRaw(
+    pendingFeeRaw,
+    totalBoostBps,
+    reward.vshipPriceUsdRaw,
+    reward.vshipPriceUsdDecimals,
+    reward.vshipTokenDecimals,
+  );
+  const totalVshipRaw = crystallizedVshipRaw + pendingVshipRaw;
 
   return {
     address: position.address,
@@ -278,6 +328,19 @@ export function getAccountMetrics(
     },
     estimatedPerformanceFee: {
       raw: valuation.estimatedPerformanceFee.toString(),
+    },
+    boost: {
+      baseBoostBps: reward.baseBoostBps.toString(),
+      additionalBoostBps: additionalBoostBps.toString(),
+      totalBoostBps: totalBoostBps.toString(),
+    },
+    vship: {
+      crystallizedRaw: crystallizedVshipRaw.toString(),
+      pendingRaw: pendingVshipRaw.toString(),
+      totalRaw: totalVshipRaw.toString(),
+      feeWatermarkRaw: feeWatermarkRaw.toString(),
+      priceUsdRaw: reward.vshipPriceUsdRaw.toString(),
+      priceUsdDecimals: reward.vshipPriceUsdDecimals,
     },
     earnedPerformanceFee: {
       shares: account.earnedPerfFeeSharesRaw.toString(),
