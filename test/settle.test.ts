@@ -15,6 +15,8 @@ import {
 import {
   listBoostChangeEvents,
   listVshipSettlementEvents,
+  readRewardConfig,
+  readWalletAdditionalBoostBps,
   readWalletVshipState,
 } from "../src/db/rewards";
 import {
@@ -106,9 +108,19 @@ test("wallet boost changes crystallize at the old boost and later growth uses th
       feeWatermarkRaw: 1_000_000n,
       crystallizedVshipRaw: 80_000_000n,
     });
+    const persistedAdditionalBoostBps = readWalletAdditionalBoostBps(db, ADDRESS);
+    assert.equal(persistedAdditionalBoostBps, 100_000n);
 
     setEstimatedFee(db, 2_000_000n);
-    const later = settleWallet(db, config, ADDRESS, 140_000n, "wallet_boost_change", 2);
+    const persistedBaseBoostBps = readRewardConfig(db).baseBoostBps;
+    const later = settleWallet(
+      db,
+      config,
+      ADDRESS,
+      persistedBaseBoostBps + persistedAdditionalBoostBps,
+      "wallet_boost_change",
+      2,
+    );
     assert.equal(later.minted, 280_000_000n);
   } finally {
     closeDatabase(db);
