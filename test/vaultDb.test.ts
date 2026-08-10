@@ -136,14 +136,19 @@ test("runMigrations creates the vault schema without changing deposit_events", (
       [
         "account_positions",
         "accrue_interest_events",
+        "boost_change_events",
         "crawl_errors",
         "deposit_events",
         "indexer_state",
         "migrations",
+        "reward_config",
         "share_price_snapshots",
         "sqlite_sequence",
         "transfer_events",
         "vault_reward_state",
+        "vship_settlement_events",
+        "wallet_boost",
+        "wallet_vship_state",
         "withdraw_events",
       ],
     );
@@ -153,9 +158,11 @@ test("runMigrations creates the vault schema without changing deposit_events", (
         .filter((name) => name.startsWith("idx_")),
       [
         "idx_accrue_perf_fee_latest",
+        "idx_boost_change_events_changed_at",
         "idx_deposit_events_block",
         "idx_snapshots_block",
         "idx_transfer_events_block",
+        "idx_vship_settlement_events_address_settled_at",
         "idx_withdraw_events_block",
       ],
     );

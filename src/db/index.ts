@@ -131,6 +131,67 @@ const MIGRATIONS = [
       WHERE performance_fee_shares != '0';
   `,
   },
+  {
+    name: "004_vship_boost_accounting",
+    sql: `
+    CREATE TABLE IF NOT EXISTS reward_config (
+      id INTEGER PRIMARY KEY CHECK (id = 1),
+      base_boost_bps TEXT NOT NULL,
+      vship_price_usd_raw TEXT NOT NULL,
+      vship_price_usd_decimals INTEGER NOT NULL,
+      vship_token_decimals INTEGER NOT NULL,
+      fee_mint_stale_blocks INTEGER NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    INSERT OR IGNORE INTO reward_config (
+      id, base_boost_bps, vship_price_usd_raw, vship_price_usd_decimals,
+      vship_token_decimals, fee_mint_stale_blocks, updated_at
+    ) VALUES (1, '40000', '50000', 6, 6, 20000, 0);
+
+    CREATE TABLE IF NOT EXISTS wallet_boost (
+      address TEXT PRIMARY KEY,
+      additional_boost_bps TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS wallet_vship_state (
+      address TEXT PRIMARY KEY,
+      fee_watermark_raw TEXT NOT NULL,
+      crystallized_vship_raw TEXT NOT NULL,
+      updated_at INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS boost_change_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      changed_at INTEGER NOT NULL,
+      change_type TEXT NOT NULL,
+      address TEXT,
+      old_bps TEXT NOT NULL,
+      new_bps TEXT NOT NULL,
+      actor TEXT NOT NULL,
+      settled_wallet_count INTEGER NOT NULL
+    );
+
+    CREATE TABLE IF NOT EXISTS vship_settlement_events (
+      id INTEGER PRIMARY KEY AUTOINCREMENT,
+      settled_at INTEGER NOT NULL,
+      address TEXT NOT NULL,
+      fee_before_raw TEXT NOT NULL,
+      fee_after_raw TEXT NOT NULL,
+      fee_delta_raw TEXT NOT NULL,
+      boost_bps_applied TEXT NOT NULL,
+      vship_minted_raw TEXT NOT NULL,
+      crystallized_vship_after_raw TEXT NOT NULL,
+      reason TEXT NOT NULL
+    );
+
+    CREATE INDEX IF NOT EXISTS idx_boost_change_events_changed_at
+      ON boost_change_events(changed_at DESC);
+    CREATE INDEX IF NOT EXISTS idx_vship_settlement_events_address_settled_at
+      ON vship_settlement_events(address, settled_at DESC);
+  `,
+  },
 ] as const;
 
 const RESET_REQUIRED_ERROR =
@@ -197,4 +258,5 @@ export function runMigrations(db: Database.Database): void {
 }
 
 export * from "./deposits";
+export * from "./rewards";
 export * from "./vault";
