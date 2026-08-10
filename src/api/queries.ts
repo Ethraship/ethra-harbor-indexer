@@ -76,6 +76,16 @@ interface ValuationSnapshotContext {
   valuationSnapshot: ReturnType<typeof readLatestSnapshot>;
 }
 
+interface PerformanceFeeValuation {
+  grossActiveDepositValue: bigint;
+  markToMarketLifetimeEarned: bigint;
+  positiveMarkToMarketLifetimeEarned: bigint;
+  performanceFeeValue: bigint;
+  grossLifetimeEarned: bigint;
+  estimatedNetLifetimeEarned: bigint;
+  estimatedPerformanceFee: bigint;
+}
+
 function toAccountLedger(position: ReturnType<typeof readAccountPosition>): AccountLedger {
   return {
     balanceRaw: BigInt(position.balanceRaw),
@@ -137,6 +147,54 @@ function readValuationSnapshotContext(
   };
 }
 
+function calculatePerformanceFeeValuation(
+  account: AccountLedger,
+  snapshot: NonNullable<ValuationSnapshotContext["valuationSnapshot"]>,
+): PerformanceFeeValuation {
+  const grossActiveDepositValue = valueOfShares(account.balanceRaw, snapshot);
+  const markToMarketLifetimeEarned =
+    grossActiveDepositValue + account.lifetimeWithdrawnRaw - account.lifetimeDepositedRaw;
+  const positiveMarkToMarketLifetimeEarned =
+    markToMarketLifetimeEarned > 0n ? markToMarketLifetimeEarned : 0n;
+  const performanceFeeValue = valueOfShares(account.earnedPerfFeeSharesRaw, snapshot);
+  const grossLifetimeEarned = positiveMarkToMarketLifetimeEarned + performanceFeeValue;
+  const estimatedNetLifetimeEarned =
+    (grossLifetimeEarned * (BPS_SCALE - PERFORMANCE_FEE_RATE_BPS)) / BPS_SCALE;
+  const roundedEstimatedPerformanceFee = grossLifetimeEarned - estimatedNetLifetimeEarned;
+  const estimatedPerformanceFee =
+    roundedEstimatedPerformanceFee > estimatedNetLifetimeEarned
+      ? estimatedNetLifetimeEarned
+      : roundedEstimatedPerformanceFee;
+
+  return {
+    grossActiveDepositValue,
+    markToMarketLifetimeEarned,
+    positiveMarkToMarketLifetimeEarned,
+    performanceFeeValue,
+    grossLifetimeEarned,
+    estimatedNetLifetimeEarned,
+    estimatedPerformanceFee,
+  };
+}
+
+export function readEstimatedPerformanceFeeRaw(
+  db: Database.Database,
+  config: AppConfig,
+  address: string,
+): bigint | null {
+  const snapshot = readValuationSnapshotContext(db, config).valuationSnapshot;
+  if (!snapshot) {
+    return null;
+  }
+
+  const position = readAccountPosition(db, address);
+  const account = toAccountLedger(position);
+  const vaultState = readVaultStateSnapshot(db, config);
+  settle(account, BigInt(vaultState.globalIndexRaw));
+
+  return calculatePerformanceFeeValuation(account, snapshot).estimatedPerformanceFee;
+}
+
 export function getAccountMetrics(
   db: Database.Database,
   config: AppConfig,
@@ -188,24 +246,11 @@ export function getAccountMetrics(
     };
   }
 
-  const grossActiveDepositValue = valueOfShares(account.balanceRaw, snapshot);
-  const markToMarketLifetimeEarned =
-    grossActiveDepositValue + account.lifetimeWithdrawnRaw - account.lifetimeDepositedRaw;
-  const positiveMarkToMarketLifetimeEarned =
-    markToMarketLifetimeEarned > 0n ? markToMarketLifetimeEarned : 0n;
-  const performanceFeeValue = valueOfShares(account.earnedPerfFeeSharesRaw, snapshot);
-  const grossLifetimeEarned = positiveMarkToMarketLifetimeEarned + performanceFeeValue;
-  const estimatedNetLifetimeEarned =
-    (grossLifetimeEarned * (BPS_SCALE - PERFORMANCE_FEE_RATE_BPS)) / BPS_SCALE;
-  const roundedEstimatedPerformanceFee = grossLifetimeEarned - estimatedNetLifetimeEarned;
-  const estimatedPerformanceFee =
-    roundedEstimatedPerformanceFee > estimatedNetLifetimeEarned
-      ? estimatedNetLifetimeEarned
-      : roundedEstimatedPerformanceFee;
+  const valuation = calculatePerformanceFeeValuation(account, snapshot);
   const estimatedActiveDepositValue =
-    markToMarketLifetimeEarned > 0n
-      ? account.lifetimeDepositedRaw - account.lifetimeWithdrawnRaw + estimatedNetLifetimeEarned
-      : grossActiveDepositValue;
+    valuation.markToMarketLifetimeEarned > 0n
+      ? account.lifetimeDepositedRaw - account.lifetimeWithdrawnRaw + valuation.estimatedNetLifetimeEarned
+      : valuation.grossActiveDepositValue;
   const activeDepositValue =
     estimatedActiveDepositValue > 0n ? estimatedActiveDepositValue : 0n;
 
@@ -222,21 +267,21 @@ export function getAccountMetrics(
       raw: account.lifetimeWithdrawnRaw.toString(),
     },
     lifetimeEarned: {
-      raw: estimatedNetLifetimeEarned.toString(),
+      raw: valuation.estimatedNetLifetimeEarned.toString(),
     },
     grossLifetimeEarned: {
-      raw: grossLifetimeEarned.toString(),
+      raw: valuation.grossLifetimeEarned.toString(),
     },
     estimatedNetLifetimeEarned: {
-      raw: estimatedNetLifetimeEarned.toString(),
+      raw: valuation.estimatedNetLifetimeEarned.toString(),
       performanceFeeRateBps: PERFORMANCE_FEE_RATE_BPS.toString(),
     },
     estimatedPerformanceFee: {
-      raw: estimatedPerformanceFee.toString(),
+      raw: valuation.estimatedPerformanceFee.toString(),
     },
     earnedPerformanceFee: {
       shares: account.earnedPerfFeeSharesRaw.toString(),
-      valueRaw: performanceFeeValue.toString(),
+      valueRaw: valuation.performanceFeeValue.toString(),
     },
     blockContext: blockContext(currentBlock, lastProcessedLogBlock, lastPerformanceFeeMintBlock),
     valuationBlock: snapshot.blockNumber,
