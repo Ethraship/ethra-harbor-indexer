@@ -102,8 +102,12 @@ export async function handleAdminRequest(
 ): Promise<boolean> {
   if (request.method === "PUT" && pathname === "/admin/boost/base") {
     const baseBoostBps = await readNonNegativeIntegerString(request, "baseBoostBps");
-    setBaseBoost(db, config, baseBoostBps, safeHead, "admin");
-    writeJson(response, 200, { status: "ok" });
+    const result = setBaseBoost(db, config, baseBoostBps, safeHead, "admin");
+    writeJson(response, 200, {
+      ok: true,
+      ...result,
+      baseBoostBps: baseBoostBps.toString(),
+    });
     return true;
   }
 
@@ -120,7 +124,7 @@ export async function handleAdminRequest(
       request,
       "additionalBoostBps",
     );
-    setWalletAdditionalBoost(
+    const result = setWalletAdditionalBoost(
       db,
       config,
       address,
@@ -128,7 +132,11 @@ export async function handleAdminRequest(
       safeHead,
       "admin",
     );
-    writeJson(response, 200, { status: "ok" });
+    writeJson(response, 200, {
+      ok: true,
+      ...result,
+      additionalBoostBps: additionalBoostBps.toString(),
+    });
     return true;
   }
 

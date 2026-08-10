@@ -1398,7 +1398,12 @@ test("PUT base boost settles and updates config when ready", async (t) => {
   });
 
   assert.equal(response.status, 200);
-  assert.deepEqual(await response.json(), { status: "ok" });
+  assert.deepEqual(await response.json(), {
+    ok: true,
+    changed: true,
+    settledWalletCount: 1,
+    baseBoostBps: "50000",
+  });
 
   const accountResponse = await fetch(`${baseUrl}/accounts/${ADMIN_ADDRESS}`);
   const account = await accountResponse.json();
@@ -1497,16 +1502,36 @@ test("GET admin history endpoints return newest-first rows", async (t) => {
     Authorization: "Bearer secret",
     "Content-Type": "application/json",
   };
-  await fetch(`${baseUrl}/admin/boost/wallets/${ADMIN_ADDRESS}`, {
-    method: "PUT",
-    headers,
-    body: JSON.stringify({ additionalBoostBps: "100000" }),
+  const firstUpdateResponse = await fetch(
+    `${baseUrl}/admin/boost/wallets/${ADMIN_ADDRESS}`,
+    {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ additionalBoostBps: "100000" }),
+    },
+  );
+  assert.equal(firstUpdateResponse.status, 200);
+  assert.deepEqual(await firstUpdateResponse.json(), {
+    ok: true,
+    changed: true,
+    settledWalletCount: 1,
+    additionalBoostBps: "100000",
   });
   setAdminEstimatedFee(db, 2_000_000n);
-  await fetch(`${baseUrl}/admin/boost/wallets/${ADMIN_ADDRESS}`, {
-    method: "PUT",
-    headers,
-    body: JSON.stringify({ additionalBoostBps: "200000" }),
+  const secondUpdateResponse = await fetch(
+    `${baseUrl}/admin/boost/wallets/${ADMIN_ADDRESS}`,
+    {
+      method: "PUT",
+      headers,
+      body: JSON.stringify({ additionalBoostBps: "200000" }),
+    },
+  );
+  assert.equal(secondUpdateResponse.status, 200);
+  assert.deepEqual(await secondUpdateResponse.json(), {
+    ok: true,
+    changed: true,
+    settledWalletCount: 1,
+    additionalBoostBps: "200000",
   });
 
   const [changesResponse, settlementsResponse] = await Promise.all([
