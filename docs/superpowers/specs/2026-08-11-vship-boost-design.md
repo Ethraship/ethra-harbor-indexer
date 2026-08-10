@@ -37,8 +37,8 @@ outside this system before cutover.
 - New SQLite tables for reward config, wallet boosts, vSHIP state, and audit
 - Soft crystallization (fee watermark) on boost mutations
 - Eager settlement (all wallets on base change; one wallet on wallet change)
-- Admin write APIs with shared-secret auth
-- Admin history read APIs
+- Admin write APIs with shared-secret auth when `ADMIN_API_TOKEN` is configured
+- Admin history read APIs when `ADMIN_API_TOKEN` is configured
 - Extended `GET /accounts/:address` boost + vSHIP fields (unused by dashboard
   in this pass)
 - Stale fee-mint refuse gate before boost mutations
@@ -161,26 +161,43 @@ without an `account_positions` row.
 
 ### Auth
 
-Write and admin history routes require:
+When `ADMIN_API_TOKEN` is present and non-empty, write and admin history
+routes are enabled and require:
 
 ```http
 Authorization: Bearer <ADMIN_API_TOKEN>
 ```
 
-Missing or invalid token → `401`. Token comes from environment config.
-Public account reads keep the current unauthenticated model.
+Missing or invalid bearer credentials on an enabled admin route → `401`.
+If `ADMIN_API_TOKEN` is absent or empty, do not register any `/admin/*`
+routes; requests to them return the normal `404`. Public routes remain enabled
+and keep the current unauthenticated model.
 
 ### Writes
 
 | Method / path | Body | Behavior |
 | --- | --- | --- |
-| `PUT /admin/boost/base` | `{ "baseBoostBps": "40000" }` | Stale-fee gate → if unchanged, no-op → else settle all eligible wallets under old base+additional → update `reward_config` → append `boost_change_events` |
-| `PUT /admin/boost/wallets/:address` | `{ "additionalBoostBps": "100000" }` | Stale-fee gate → if unchanged, no-op → else settle that wallet under old total → upsert `wallet_boost` → append events. `0` clears additional boost |
+| `PUT /admin/boost/base` | `{ "baseBoostBps": "40000" }` | Mutation-readiness gate → stale-fee gate → if unchanged, no-op → else settle all eligible wallets under old base+additional → update `reward_config` → append `boost_change_events` |
+| `PUT /admin/boost/wallets/:address` | `{ "additionalBoostBps": "100000" }` | Mutation-readiness gate → stale-fee gate → if unchanged, no-op → else settle that wallet under old total → upsert `wallet_boost` → append events. `0` clears additional boost |
 
 Eligible wallets for base-boost eager settle: every address in
 `wallet_vship_state` and/or with positive `estimatedPerformanceFee` and/or
 in `wallet_boost` (so boosted-but-empty wallets remain consistent). Prefer
 a deterministic union of those sets. Run inside **one SQLite transaction**.
+
+### Mutation-readiness gate
+
+Before any boost mutation, require all of the following:
+
+1. The crawler safe head is known.
+2. The indexer cursor is at or beyond that safe head.
+3. A valuation snapshot usable at the cursor exists, so
+   `estimatedPerformanceFee.raw` is available for settlement.
+
+If any condition fails, return `409` with a clear "indexer not ready" error.
+Do not settle wallets or write boost state. This prevents fee growth that
+predates a boost change but has not been indexed yet from receiving the new
+boost.
 
 ### Stale fee-mint gate
 
@@ -224,8 +241,10 @@ Admin history (authenticated):
 
 | Case | Status |
 | --- | --- |
-| Bad/missing admin token | `401` |
+| Admin route while `ADMIN_API_TOKEN` is absent or empty | `404` |
+| Missing or invalid credentials on an enabled admin route | `401` |
 | Invalid address or bps | `400` |
+| Indexer not ready for mutation | `409` |
 | Stale fee mint gate | `409` |
 | Transaction failure | `500` (full rollback) |
 
@@ -280,8 +299,11 @@ from `START_BLOCK` for this release.
 - After boost change, prior crystallized stays fixed while new fee growth
   uses new boost
 - Additive 4x + 10x = 14x on settle/pending
+- Unsynced cursor, unknown safe head, or unavailable valuation returns 409 and
+  leaves tables unchanged
 - Stale-mint gate returns 409 and leaves tables unchanged
-- Admin routes 401 without token
+- Admin routes return 404 when `ADMIN_API_TOKEN` is absent or empty
+- Enabled admin routes return 401 for missing or invalid bearer credentials
 - Pre-deposit boosted wallet returns boost on account read
 - History endpoints return ordered change/settlement rows
 - Existing USDC fee response fields unchanged by boost mutations
