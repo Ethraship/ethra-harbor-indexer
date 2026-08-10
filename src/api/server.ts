@@ -153,6 +153,11 @@ export function createApiServer(dependencies: ApiServerDependencies): http.Serve
       return;
     }
 
+    if (request.method === "PUT") {
+      writeJson(response, 404, { error: "not found" });
+      return;
+    }
+
     if (tryWriteDashboardAsset(response, url.pathname)) {
       return;
     }

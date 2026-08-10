@@ -1312,6 +1312,27 @@ async function closeApiTestServer(
   closeDatabase(db);
 }
 
+test("public routes reject PUT requests", async (t) => {
+  const db = openDatabase(":memory:");
+  const config = createConfig({ ADMIN_API_TOKEN: "secret" });
+  const server = createApiServer({ db, config, health: { safeHead: 1 } });
+  t.after(() => closeApiTestServer(server, db));
+  runMigrations(db);
+
+  const baseUrl = await startServer(server);
+  const responses = await Promise.all([
+    fetch(`${baseUrl}/dashboard`, { method: "PUT" }),
+    fetch(`${baseUrl}/health`, { method: "PUT" }),
+    fetch(`${baseUrl}/vault`, { method: "PUT" }),
+    fetch(`${baseUrl}/accounts/${ADMIN_ADDRESS}`, { method: "PUT" }),
+  ]);
+
+  for (const response of responses) {
+    assert.equal(response.status, 404);
+    assert.deepEqual(await response.json(), { error: "not found" });
+  }
+});
+
 test("admin routes are 404 when ADMIN_API_TOKEN is unset", async (t) => {
   const db = openDatabase(":memory:");
   const config = createConfig();
