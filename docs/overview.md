@@ -103,4 +103,7 @@ does not create a settlement history row, and an identical boost is a no-op.
 This cutover is nuke-and-reindex only: delete the local SQLite database and
 reindex from `START_BLOCK`. There is no genesis reward backfill. Admin mutation
 routes require a known safe head, cursor synchronization to that head, a usable
-valuation snapshot, and a fresh performance-fee mint; failed gates return `409`.
+valuation snapshot, and fee-mint freshness. Having no recorded nonzero
+performance-fee mint is allowed; when one exists, mutations are rejected only
+if it is at least the configured threshold behind the freshest local block.
+Failed gates return `409`.

@@ -186,9 +186,10 @@ additional boost. For every address:
 
 `wallet_vship_state` stores the fee watermark and crystallized vSHIP total.
 `boost_change_events` records changed base or wallet boost values, and
-`vship_settlement_events` records positive fee-delta settlements. All chain,
-USDC, boost, and vSHIP integers are strings at the SQLite/HTTP boundary and
-`bigint` in memory.
+`vship_settlement_events` records positive fee-delta settlements. Raw amount,
+boost-bps, and vSHIP bigint fields are decimal strings at the SQLite/HTTP
+boundary and `bigint` in memory. Blocks, timestamps, row IDs, decimal-place
+metadata, and wallet counts are numbers.
 
 Settlement is soft crystallization against the read-time estimated performance
 fee. A boost change settles using the old boost first, advances the watermark
@@ -336,8 +337,9 @@ SQLite file and re-crawl from `START_BLOCK`.
 
 - Base mainnet is the only supported chain.
 - Wallet address is the only identity.
-- Raw and derived values that represent on-chain integers are stored as strings
-  at the persistence boundary and converted to `bigint` in memory.
+- Raw amount, boost-bps, and vSHIP bigint values are stored as decimal strings
+  at persistence and HTTP boundaries and converted to `bigint` in memory;
+  blocks, timestamps, row IDs, decimal-place metadata, and counts are numeric.
 - API responses may have `null` valuation fields until the first snapshot is
   captured.
 - The vSHIP boost cutover requires deleting the local SQLite file and reindexing

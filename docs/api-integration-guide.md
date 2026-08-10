@@ -163,6 +163,33 @@ interface AccountMetricsResponse {
   valuationBlock: NullableBlock;
   valuationTime: NullableTimestampMs;
 }
+
+interface BaseBoostMutationResponse {
+  ok: true;
+  changed: boolean;
+  settledWalletCount: number;
+  baseBoostBps: IntegerString;
+}
+
+interface WalletBoostMutationResponse {
+  ok: true;
+  changed: boolean;
+  settledWalletCount: number;
+  additionalBoostBps: IntegerString;
+}
+
+interface VshipSettlementEvent {
+  id: number;
+  settledAt: number;
+  address: string;
+  feeBeforeRaw: IntegerString;
+  feeAfterRaw: IntegerString;
+  feeDeltaRaw: IntegerString;
+  boostBpsApplied: IntegerString;
+  vshipMintedRaw: IntegerString;
+  crystallizedVshipAfterRaw: IntegerString;
+  reason: "base_boost_change" | "wallet_boost_change";
+}
 ```
 
 ## `GET /health`
@@ -527,8 +554,10 @@ Body:
 `baseBoostBps` must be a non-negative decimal integer string. On a changed
 value, the server settles every eligible wallet at the old total boost, writes
 the new base value, and records a boost-change event in one SQLite transaction.
-An identical value is a no-op. Success returns `200` with
-`{ "status": "ok" }`.
+For example, a changed request returns `200` with
+`{ "ok": true, "changed": true, "settledWalletCount": 1, "baseBoostBps": "50000" }`.
+An identical value is a no-op whose response retains the requested
+`baseBoostBps` and sets `changed` to `false` and `settledWalletCount` to `0`.
 
 ### `PUT /admin/boost/wallets/:address`
 
@@ -542,8 +571,12 @@ Body:
 
 The address must pass `ethers.getAddress`; the value must be a non-negative
 decimal integer string. A changed value settles that wallet at the old total
-boost before writing the additive boost and audit event. Success returns
-`200` with `{ "status": "ok" }`.
+boost before writing the additive boost and audit event. Success returns `200`
+with
+`{ "ok": true, "changed": true, "settledWalletCount": 1, "additionalBoostBps": "100000" }`.
+An identical value is a no-op whose response retains the requested
+`additionalBoostBps` and sets `changed` to `false` and
+`settledWalletCount` to `0`.
 
 Both mutation routes require all of the following readiness conditions:
 
@@ -556,9 +589,9 @@ If any condition is missing, the response is `409` with
 the freshest local block reference is at least `fee_mint_stale_blocks` blocks
 after the latest nonzero performance-fee mint. The default threshold is
 `20000`, and the stale response is `{ "error": "fee mint is stale" }`. Invalid
-bodies or addresses return `400`; unexpected SQLite/transaction errors return
-`500` with `{ "error": "internal server error" }` and roll back all reward
-writes.
+bodies or addresses return `400` with `{ "error": "invalid request" }`;
+unexpected SQLite/transaction errors return `500` with
+`{ "error": "internal server error" }` and roll back all reward writes.
 
 ### `GET /admin/boost/changes`
 
@@ -587,6 +620,23 @@ address. `feeBeforeRaw`, `feeAfterRaw`, `feeDeltaRaw`, `boostBpsApplied`,
 `vshipMintedRaw`, and `crystallizedVshipAfterRaw` are all decimal strings. A
 zero fee delta updates sticky state if needed but does not create a settlement
 history row.
+
+```json
+[
+  {
+    "id": 2,
+    "settledAt": 1712345600000,
+    "address": "0x1111111111111111111111111111111111111111",
+    "feeBeforeRaw": "1000000",
+    "feeAfterRaw": "2000000",
+    "feeDeltaRaw": "1000000",
+    "boostBpsApplied": "140000",
+    "vshipMintedRaw": "280000000",
+    "crystallizedVshipAfterRaw": "360000000",
+    "reason": "wallet_boost_change"
+  }
+]
+```
 
 These admin routes are local indexer controls and history reads only. They do
 not move the Morpho position, wire the dashboard, submit on-chain transactions,
