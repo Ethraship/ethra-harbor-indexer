@@ -23,9 +23,27 @@ test("loadConfig returns the documented defaults", () => {
     snapshotIntervalMs: 60000,
     apiEnabled: true,
     apiPort: 8080,
+    adminApiToken: null,
     crawlMode: "auto",
     logLevel: "info",
   });
+});
+
+test("loadConfig defaults adminApiToken to null", () => {
+  const config = loadConfig({});
+  assert.equal(config.adminApiToken, null);
+});
+
+test("loadConfig treats empty or whitespace ADMIN_API_TOKEN as null", () => {
+  assert.equal(loadConfig({ ADMIN_API_TOKEN: "" }).adminApiToken, null);
+  assert.equal(loadConfig({ ADMIN_API_TOKEN: "   " }).adminApiToken, null);
+});
+
+test("loadConfig trims a configured ADMIN_API_TOKEN", () => {
+  assert.equal(
+    loadConfig({ ADMIN_API_TOKEN: "  secret-token  " }).adminApiToken,
+    "secret-token",
+  );
 });
 
 test("defaults include snapshot + api config", () => {

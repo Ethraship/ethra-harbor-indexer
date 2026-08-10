@@ -14,6 +14,7 @@ export interface AppConfig {
   snapshotIntervalMs: number;
   apiEnabled: boolean;
   apiPort: number;
+  adminApiToken: string | null;
   chunkSize: number;
   blockTimeMs: number;
   fastPollMs: number;
@@ -44,6 +45,16 @@ const DEFAULTS = {
 const CRAWL_MODES = new Set<CrawlMode>(["auto", "fast", "slow"]);
 const LOG_LEVELS = new Set<LogLevel>(["debug", "info", "warn", "error"]);
 const HTTP_RPC_PROTOCOLS = new Set(["http:", "https:"]);
+
+function readOptionalSecret(
+  env: NodeJS.ProcessEnv,
+  key: "ADMIN_API_TOKEN",
+): string | null {
+  const raw = env[key];
+  if (raw === undefined) return null;
+  const trimmed = raw.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
 
 function readNumber(
   env: NodeJS.ProcessEnv,
@@ -140,6 +151,7 @@ export function loadConfig(env: NodeJS.ProcessEnv = process.env): AppConfig {
       }
       return port;
     })(),
+    adminApiToken: readOptionalSecret(env, "ADMIN_API_TOKEN"),
     chunkSize: readNumber(env, "CHUNK_SIZE", 1),
     blockTimeMs: readNumber(env, "BASE_BLOCK_TIME_MS", 1),
     fastPollMs: readNumber(env, "FAST_POLL_MS", 250),
