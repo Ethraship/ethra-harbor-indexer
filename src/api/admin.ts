@@ -7,6 +7,7 @@ import type { AppConfig } from "../config";
 import {
   listBoostChangeEvents,
   listVshipSettlementEvents,
+  listWalletBoosts,
   type BoostChangeEventRow,
   type VshipSettlementEventRow,
 } from "../db/rewards";
@@ -142,6 +143,18 @@ export async function handleAdminRequest(
 
   if (request.method === "GET" && pathname === "/admin/boost/changes") {
     writeJson(response, 200, listBoostChangeEvents(db).map(serializeBoostChangeEvent));
+    return true;
+  }
+
+  if (request.method === "GET" && pathname === "/admin/boost/wallets") {
+    writeJson(
+      response,
+      200,
+      listWalletBoosts(db).map((row) => ({
+        address: row.address,
+        additionalBoostBps: row.additionalBoostBps.toString(),
+      })),
+    );
     return true;
   }
 

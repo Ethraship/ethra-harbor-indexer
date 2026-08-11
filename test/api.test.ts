@@ -2,6 +2,8 @@ import assert from "node:assert/strict";
 import type { AddressInfo } from "node:net";
 import test from "node:test";
 
+import { getAddress } from "ethers";
+
 import { loadConfig } from "../src/config";
 import {
   closeDatabase,
@@ -1710,6 +1712,43 @@ test("admin history endpoints are public without a bearer token", async (t) => {
   assert.deepEqual(await settlementsResponse.json(), []);
   assert.equal(invalidSettlements.status, 400);
   assert.deepEqual(await invalidSettlements.json(), { error: "invalid request" });
+});
+
+test("GET /admin/boost/wallets lists positive boosts without auth", async (t) => {
+  const db = openDatabase(":memory:");
+  const config = createConfig({ ADMIN_API_TOKEN: "secret" });
+  runMigrations(db);
+  const low = "0x1111111111111111111111111111111111111111";
+  const high = "0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+  upsertWalletAdditionalBoostBps(db, high, 50000n, 1);
+  upsertWalletAdditionalBoostBps(db, low, 100000n, 1);
+  upsertWalletAdditionalBoostBps(db, "0x2222222222222222222222222222222222222222", 0n, 1);
+
+  const server = createApiServer({ db, config, health: null });
+  t.after(() => closeApiTestServer(server, db));
+  const baseUrl = await startServer(server);
+
+  const response = await fetch(`${baseUrl}/admin/boost/wallets`);
+  assert.equal(response.status, 200);
+  const body = await response.json();
+  assert.deepEqual(body, [
+    { address: getAddress(low), additionalBoostBps: "100000" },
+    { address: getAddress(high), additionalBoostBps: "50000" },
+  ]);
+});
+
+test("GET /admin/boost/wallets returns empty array when none", async (t) => {
+  const db = openDatabase(":memory:");
+  const config = createConfig({ ADMIN_API_TOKEN: "secret" });
+  runMigrations(db);
+
+  const server = createApiServer({ db, config, health: null });
+  t.after(() => closeApiTestServer(server, db));
+  const baseUrl = await startServer(server);
+
+  const response = await fetch(`${baseUrl}/admin/boost/wallets`);
+  assert.equal(response.status, 200);
+  assert.deepEqual(await response.json(), []);
 });
 
 test("GET admin history endpoints return newest-first rows", async (t) => {

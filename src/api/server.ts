@@ -205,6 +205,7 @@ export function createApiServer(dependencies: ApiServerDependencies): http.Serve
       const isPublicAdminRead =
         request.method === "GET" &&
         (url.pathname === "/admin/boost/changes" ||
+          url.pathname === "/admin/boost/wallets" ||
           /^\/admin\/vship\/settlements\/[^/]+$/.test(url.pathname));
 
       if (!isPublicAdminRead) {
