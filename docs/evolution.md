@@ -2,6 +2,13 @@
 
 ## 2026-08-11
 
+- Area: admin bulk wallet boost CSV
+- Changed: added an `/admin` panel that validates a strict `wallet,boost` CSV
+  then sequentially PUTs each row via the existing wallet boost endpoint,
+  continuing on live failures with a per-row summary.
+- Why: operators need to apply many additional boosts without a new bulk API
+  or hand-entering each wallet.
+
 - Area: admin wallet boost list
 - Changed: added public `GET /admin/boost/wallets` and an on-demand admin panel
   with Remove (PUT additional boost to 0).
