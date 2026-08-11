@@ -102,6 +102,31 @@
       <section class="panel account-panel">
         <div class="panel-heading account-heading">
           <div>
+            <h2>Bulk wallet boost CSV</h2>
+            <p class="panel-copy">
+              Strict header <code>wallet,boost</code> — sequential PUT /admin/boost/wallets/:address (API key required)
+            </p>
+          </div>
+        </div>
+        <div class="lookup-form">
+          <label for="bulk-boost-file">CSV file</label>
+          <div class="lookup-row">
+            <input
+              id="bulk-boost-file"
+              name="bulkBoostFile"
+              type="file"
+              accept=".csv,text/csv"
+            >
+            <button class="button" id="bulk-boost-button" type="button">Apply</button>
+          </div>
+          <p class="error-text" id="bulk-boost-error" hidden></p>
+        </div>
+        <div class="empty-state" id="bulk-boost-result">No request yet.</div>
+      </section>
+
+      <section class="panel account-panel">
+        <div class="panel-heading account-heading">
+          <div>
             <h2>Wallet additional boosts</h2>
             <p class="panel-copy">GET /admin/boost/wallets — no API key; Remove uses key</p>
           </div>
