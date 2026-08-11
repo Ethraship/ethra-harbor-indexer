@@ -1,0 +1,82 @@
+<!doctype html>
+<html lang="en">
+  <head>
+    <meta charset="utf-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1">
+    <title>Overview · Ethra Harbor</title>
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link
+      href="https://fonts.googleapis.com/css2?family=Manrope:wght@500;600;700;800&display=swap"
+      rel="stylesheet"
+    >
+    <link rel="stylesheet" href="/overview/styles.css">
+  </head>
+  <body>
+    <main class="shell">
+      <header class="topbar">
+        <div>
+          <p class="eyebrow">Ethra Harbor</p>
+          <h1>Overview</h1>
+        </div>
+        <div class="topbar-actions">
+          <div class="range-toggle" role="group" aria-label="Chart range">
+            <button class="range-button is-active" type="button" data-window-days="7">7D</button>
+            <button class="range-button" type="button" data-window-days="30">30D</button>
+            <button class="range-button" type="button" data-window-days="90">90D</button>
+          </div>
+          <span class="updated" id="updated-at">Loading</span>
+          <button class="ghost-button" id="refresh" type="button">Refresh</button>
+        </div>
+      </header>
+
+      <p class="error-banner" id="page-error" hidden></p>
+
+      <section class="metric-grid" aria-label="Summary metrics">
+        <article class="metric-card">
+          <div class="metric-label">Total assets</div>
+          <p class="metric-value" id="total-assets">—</p>
+        </article>
+        <article class="metric-card">
+          <div class="metric-label">Total earned</div>
+          <p class="metric-value" id="total-earned">—</p>
+        </article>
+        <article class="metric-card">
+          <div class="metric-label">Total wallets</div>
+          <p class="metric-value" id="total-wallets">—</p>
+        </article>
+      </section>
+
+      <section class="chart-grid" aria-label="Activity charts">
+        <article class="panel">
+          <div class="panel-heading">
+            <h2>Total assets</h2>
+            <span class="panel-note" id="assets-window">Last 7 days</span>
+          </div>
+          <div class="chart">
+            <canvas id="assets-chart" aria-label="Total assets over time"></canvas>
+          </div>
+        </article>
+        <article class="panel">
+          <div class="panel-heading">
+            <h2>Deposit &amp; withdraw volume</h2>
+            <span class="panel-note" id="volume-window">Last 7 days</span>
+          </div>
+          <div class="chart">
+            <canvas id="volume-chart" aria-label="Deposit and withdraw volume"></canvas>
+          </div>
+        </article>
+      </section>
+
+      <section class="panel">
+        <div class="panel-heading">
+          <h2>Top wallets</h2>
+          <span class="panel-note">By current position</span>
+        </div>
+        <div class="wallet-list" id="top-wallets"></div>
+      </section>
+    </main>
+    <script src="/overview/chart.umd.min.js"></script>
+    <script src="/overview/app.js" defer></script>
+  </body>
+</html>

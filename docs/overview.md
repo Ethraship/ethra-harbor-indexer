@@ -44,9 +44,10 @@ Vault-level reads expose total supply, latest share-price snapshot, share price,
 and cumulative performance-fee shares and value.
 
 The bundled dashboard shows API health, vault metrics, and one wallet lookup by
-calling the same read-only JSON routes from the browser. The bundled admin page
-can change base or wallet boosts with an API key and can load history without
-one.
+calling the same read-only JSON routes from the browser. The bundled overview
+page at `/overview` shows director-facing vault totals, selectable 7/30/90-day
+charts, and top wallets from `GET /overview/stats`. The bundled admin page can
+change base or wallet boosts with an API key and can load history without one.
 
 ## System Shape
 

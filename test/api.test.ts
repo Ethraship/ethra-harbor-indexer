@@ -58,12 +58,27 @@ test("api serves the dashboard shell and static assets", async (t) => {
   runMigrations(db);
 
   const baseUrl = await startServer(server);
-  const [dashboardRes, dashboardSlashRes, cssRes, jsRes, adminRes, adminJsRes, missingRes] =
-    await Promise.all([
+  const [
+    dashboardRes,
+    dashboardSlashRes,
+    cssRes,
+    jsRes,
+    overviewRes,
+    overviewCssRes,
+    overviewJsRes,
+    overviewChartRes,
+    adminRes,
+    adminJsRes,
+    missingRes,
+  ] = await Promise.all([
       fetch(`${baseUrl}/dashboard`),
       fetch(`${baseUrl}/dashboard/`),
       fetch(`${baseUrl}/dashboard/styles.css`),
       fetch(`${baseUrl}/dashboard/app.js`),
+      fetch(`${baseUrl}/overview`),
+      fetch(`${baseUrl}/overview/styles.css`),
+      fetch(`${baseUrl}/overview/app.js`),
+      fetch(`${baseUrl}/overview/chart.umd.min.js`),
       fetch(`${baseUrl}/admin`),
       fetch(`${baseUrl}/admin/app.js`),
       fetch(`${baseUrl}/dashboard/missing.js`),
@@ -73,6 +88,10 @@ test("api serves the dashboard shell and static assets", async (t) => {
   assert.equal(dashboardSlashRes.status, 200);
   assert.equal(cssRes.status, 200);
   assert.equal(jsRes.status, 200);
+  assert.equal(overviewRes.status, 200);
+  assert.equal(overviewCssRes.status, 200);
+  assert.equal(overviewJsRes.status, 200);
+  assert.equal(overviewChartRes.status, 200);
   assert.equal(adminRes.status, 200);
   assert.equal(adminJsRes.status, 200);
   assert.equal(missingRes.status, 404);
@@ -80,12 +99,32 @@ test("api serves the dashboard shell and static assets", async (t) => {
   assert.match(dashboardRes.headers.get("content-type") ?? "", /^text\/html/);
   assert.match(cssRes.headers.get("content-type") ?? "", /^text\/css/);
   assert.match(jsRes.headers.get("content-type") ?? "", /^text\/javascript/);
+  assert.match(overviewRes.headers.get("content-type") ?? "", /^text\/html/);
+  assert.match(overviewCssRes.headers.get("content-type") ?? "", /^text\/css/);
+  assert.match(overviewJsRes.headers.get("content-type") ?? "", /^text\/javascript/);
 
   const html = await dashboardRes.text();
   assert.match(html, /Ethra Harbor Dashboard/);
   assert.match(html, /\/dashboard\/styles\.css/);
   assert.match(html, /\/dashboard\/app\.js/);
   assert.match(html, /href="\/admin"/);
+
+  const overviewHtml = await overviewRes.text();
+  assert.match(overviewHtml, /Overview/);
+  assert.match(overviewHtml, /\/overview\/styles\.css/);
+  assert.match(overviewHtml, /\/overview\/app\.js/);
+  assert.match(overviewHtml, /\/overview\/chart\.umd\.min\.js/);
+  assert.match(overviewHtml, /Total assets/);
+  assert.match(overviewHtml, /Top wallets/);
+
+  const overviewJs = await overviewJsRes.text();
+  assert.match(overviewJs, /\/overview\/stats/);
+  assert.match(overviewJs, /windowDays=/);
+  assert.match(overviewJs, /new Chart/);
+  assert.doesNotMatch(overviewJs, /raw:/);
+
+  const overviewChart = await overviewChartRes.text();
+  assert.match(overviewChart, /Chart/);
 
   const adminHtml = await adminRes.text();
   assert.match(adminHtml, /Ethra Harbor Admin/);
@@ -111,6 +150,156 @@ test("api serves the dashboard shell and static assets", async (t) => {
   assert.deepEqual(await missingRes.json(), {
     error: "not found",
   });
+});
+
+test("api serves overview stats aggregated from indexed state", async (t) => {
+  const db = openDatabase(":memory:");
+  const config = createConfig();
+  const rich = "0x1111111111111111111111111111111111111111";
+  const lean = "0x2222222222222222222222222222222222222222";
+  const server = createApiServer({ db, config });
+
+  t.after(async () => {
+    await new Promise<void>((resolve, reject) => {
+      server.close((error) => {
+        if (error) {
+          reject(error);
+          return;
+        }
+
+        resolve();
+      });
+    });
+    closeDatabase(db);
+  });
+
+  runMigrations(db);
+
+  const cursorBlock = getOrCreateVaultCursor(db, config);
+  assert.equal(cursorBlock, 48578254);
+  db.prepare(`
+    UPDATE indexer_state
+    SET last_scanned_block = ?
+  `).run(48700010);
+
+  upsertVaultState(db, config, {
+    globalIndexRaw: (SCALE / 10n).toString(),
+    totalSupplyRaw: "3000000000000000000",
+    cumulativePerfFeeSharesRaw: "0",
+    cumulativeMgmtFeeSharesRaw: "0",
+    updatedBlockNumber: 48700000,
+  });
+  upsertAccountPosition(db, {
+    address: rich,
+    balanceRaw: "2000000000000000000",
+    rewardDebtRaw: "0",
+    earnedPerfFeeSharesRaw: "0",
+    lifetimeDepositedRaw: "2000000",
+    lifetimeWithdrawnRaw: "0",
+    updatedBlockNumber: 48700000,
+    updatedLogIndex: 1,
+  });
+  upsertAccountPosition(db, {
+    address: lean,
+    balanceRaw: "1000000000000000000",
+    rewardDebtRaw: "0",
+    earnedPerfFeeSharesRaw: "0",
+    lifetimeDepositedRaw: "500000",
+    lifetimeWithdrawnRaw: "0",
+    updatedBlockNumber: 48700000,
+    updatedLogIndex: 2,
+  });
+
+  const nowMs = Date.now();
+  insertSnapshot(db, {
+    blockNumber: 48700000,
+    totalAssetsRaw: "2500000",
+    totalSupplyRaw: "3000000000000000000",
+    capturedAt: nowMs - 2 * 24 * 60 * 60 * 1000,
+  });
+  insertSnapshot(db, {
+    blockNumber: 48700010,
+    totalAssetsRaw: "3000000",
+    totalSupplyRaw: "3000000000000000000",
+    capturedAt: nowMs,
+  });
+
+  const olderBlock = 48700010 - Math.floor((2 * 24 * 60 * 60 * 1000) / 2000);
+  db.prepare(`
+    INSERT INTO deposit_events (
+      chain_id, contract_address, block_number, block_hash, tx_hash, tx_index,
+      log_index, sender, on_behalf, assets, shares, raw_log_json, created_at
+    ) VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+  `).run(
+    config.chainId,
+    config.contractAddress,
+    olderBlock,
+    "0xblock",
+    "0xtxdeposit",
+    0,
+    0,
+    rich,
+    rich,
+    "750000",
+    "1000000000000000000",
+    "{}",
+    nowMs,
+  );
+  insertWithdrawEvent(db, {
+    chainId: config.chainId,
+    contractAddress: config.contractAddress,
+    blockNumber: olderBlock,
+    blockHash: "0xblock2",
+    txHash: "0xtxwithdraw",
+    txIndex: 1,
+    logIndex: 1,
+    sender: lean,
+    receiver: lean,
+    onBehalf: lean,
+    assets: "100000",
+    shares: "100000000000000000",
+    rawLogJson: "{}",
+    createdAt: nowMs,
+  });
+
+  const baseUrl = await startServer(server);
+  const response = await fetch(`${baseUrl}/overview/stats`);
+  assert.equal(response.status, 200);
+
+  const body = await response.json();
+  assert.equal(body.windowDays, 7);
+  assert.equal(body.totals.totalAssetsRaw, "3000000");
+  assert.equal(body.totals.totalDepositedRaw, "2500000");
+  assert.equal(body.totals.totalWallets, 2);
+  assert.ok(body.totals.totalEarnedRaw !== null);
+  assert.equal(body.assetsOverTime.length, 7);
+  assert.equal(body.volumeOverTime.length, 7);
+  assert.equal(body.topWallets.length, 2);
+  assert.equal(body.topWallets[0].address, rich);
+  assert.equal(body.topWallets[1].address, lean);
+  assert.ok(
+    body.assetsOverTime.some(
+      (point: { totalAssetsRaw: string }) => point.totalAssetsRaw === "650000",
+    ),
+    "assets series should reflect reconstructed deposit/withdraw history",
+  );
+  assert.equal(body.assetsOverTime.at(-1).totalAssetsRaw, "3000000");
+
+  const volumeDay = body.volumeOverTime.find(
+    (point: { depositedRaw: string; withdrawnRaw: string }) =>
+      point.depositedRaw === "750000" && point.withdrawnRaw === "100000",
+  );
+  assert.ok(volumeDay, "expected a day bucket with the inserted deposit and withdraw");
+
+  const thirtyRes = await fetch(`${baseUrl}/overview/stats?windowDays=30`);
+  assert.equal(thirtyRes.status, 200);
+  const thirtyBody = await thirtyRes.json();
+  assert.equal(thirtyBody.windowDays, 30);
+  assert.equal(thirtyBody.assetsOverTime.length, 30);
+
+  const badRes = await fetch(`${baseUrl}/overview/stats?windowDays=60`);
+  assert.equal(badRes.status, 400);
+  assert.deepEqual(await badRes.json(), { error: "invalid windowDays" });
 });
 
 test("api serves account, vault, and health metrics from indexed state", async (t) => {

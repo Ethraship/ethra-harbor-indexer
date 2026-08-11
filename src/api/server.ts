@@ -12,14 +12,24 @@ import {
   InvalidAdminRequestError,
   requireAdminAuth,
 } from "./admin";
+import { getOverviewStats, parseOverviewWindowDays } from "./overview";
 import { getAccountMetrics, getVaultMetrics } from "./queries";
 import { MutationNotReadyError, StaleFeeMintError } from "../rewards/settle";
 
 const DASHBOARD_ROOT = join(process.cwd(), "public");
-const DASHBOARD_ASSETS = new Map<string, { fileName: string; contentType: string }>([
+const VENDOR_ROOT = join(process.cwd(), "node_modules");
+
+type StaticAsset = {
+  root: string;
+  fileName: string;
+  contentType: string;
+};
+
+const DASHBOARD_ASSETS = new Map<string, StaticAsset>([
   [
     "/dashboard",
     {
+      root: DASHBOARD_ROOT,
       fileName: "dashboard.html",
       contentType: "text/html; charset=utf-8",
     },
@@ -27,6 +37,7 @@ const DASHBOARD_ASSETS = new Map<string, { fileName: string; contentType: string
   [
     "/dashboard/",
     {
+      root: DASHBOARD_ROOT,
       fileName: "dashboard.html",
       contentType: "text/html; charset=utf-8",
     },
@@ -34,6 +45,7 @@ const DASHBOARD_ASSETS = new Map<string, { fileName: string; contentType: string
   [
     "/dashboard/styles.css",
     {
+      root: DASHBOARD_ROOT,
       fileName: "dashboard.css",
       contentType: "text/css; charset=utf-8",
     },
@@ -41,13 +53,55 @@ const DASHBOARD_ASSETS = new Map<string, { fileName: string; contentType: string
   [
     "/dashboard/app.js",
     {
+      root: DASHBOARD_ROOT,
       fileName: "dashboard.js",
+      contentType: "text/javascript; charset=utf-8",
+    },
+  ],
+  [
+    "/overview",
+    {
+      root: DASHBOARD_ROOT,
+      fileName: "overview.html",
+      contentType: "text/html; charset=utf-8",
+    },
+  ],
+  [
+    "/overview/",
+    {
+      root: DASHBOARD_ROOT,
+      fileName: "overview.html",
+      contentType: "text/html; charset=utf-8",
+    },
+  ],
+  [
+    "/overview/styles.css",
+    {
+      root: DASHBOARD_ROOT,
+      fileName: "overview.css",
+      contentType: "text/css; charset=utf-8",
+    },
+  ],
+  [
+    "/overview/app.js",
+    {
+      root: DASHBOARD_ROOT,
+      fileName: "overview.js",
+      contentType: "text/javascript; charset=utf-8",
+    },
+  ],
+  [
+    "/overview/chart.umd.min.js",
+    {
+      root: VENDOR_ROOT,
+      fileName: "chart.js/dist/chart.umd.min.js",
       contentType: "text/javascript; charset=utf-8",
     },
   ],
   [
     "/admin",
     {
+      root: DASHBOARD_ROOT,
       fileName: "admin.html",
       contentType: "text/html; charset=utf-8",
     },
@@ -55,6 +109,7 @@ const DASHBOARD_ASSETS = new Map<string, { fileName: string; contentType: string
   [
     "/admin/",
     {
+      root: DASHBOARD_ROOT,
       fileName: "admin.html",
       contentType: "text/html; charset=utf-8",
     },
@@ -62,6 +117,7 @@ const DASHBOARD_ASSETS = new Map<string, { fileName: string; contentType: string
   [
     "/admin/app.js",
     {
+      root: DASHBOARD_ROOT,
       fileName: "admin.js",
       contentType: "text/javascript; charset=utf-8",
     },
@@ -112,7 +168,7 @@ function tryWriteDashboardAsset(
     return false;
   }
 
-  const body = readFileSync(join(DASHBOARD_ROOT, asset.fileName), "utf8");
+  const body = readFileSync(join(asset.root, asset.fileName), "utf8");
   writeText(response, 200, asset.contentType, body);
   return true;
 }
@@ -211,6 +267,16 @@ export function createApiServer(dependencies: ApiServerDependencies): http.Serve
 
     if (url.pathname === "/vault") {
       writeJson(response, 200, getVaultMetrics(db, config));
+      return;
+    }
+
+    if (url.pathname === "/overview/stats") {
+      try {
+        const windowDays = parseOverviewWindowDays(url.searchParams.get("windowDays"));
+        writeJson(response, 200, getOverviewStats(db, config, windowDays));
+      } catch {
+        writeJson(response, 400, { error: "invalid windowDays" });
+      }
       return;
     }
 

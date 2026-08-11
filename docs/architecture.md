@@ -41,12 +41,12 @@ mobile, wallet UX, or user-profile systems.
    - Periodically reads `totalAssets()` and `totalSupply()` from chain and
      stores `share_price_snapshots`.
 7. `src/api/`
-   - Serves public JSON responses for health, vault metrics, and per-address
-     metrics without mutating database state.
+   - Serves public JSON responses for health, vault metrics, overview aggregates,
+     and per-address metrics without mutating database state.
    - When `ADMIN_API_TOKEN` is non-empty, also authenticates boost mutations
      under `/admin/*`. Boost-change and settlement history GETs stay public.
-   - Serves known static dashboard and admin assets from `public/` at
-     `/dashboard` and `/admin`.
+   - Serves known static dashboard, overview, and admin assets from `public/` at
+     `/dashboard`, `/overview`, and `/admin`.
 8. `src/index.ts`
    - Bootstraps config, DB, provider, crawler, snapshotter, optional API
      server, and graceful shutdown wiring.
@@ -66,11 +66,11 @@ mobile, wallet UX, or user-profile systems.
   - Public HTTP request paths read SQLite only and do not mutate cursors or hit
     RPC. The optional authenticated `/admin/*` mutation paths write only the
     reward tables described below; they do not write chain state.
-  - The dashboard and admin pages are static browser code. The dashboard calls
-    public GET routes. The admin page sends `Authorization: Bearer` only on
-    boost PUTs and loads history without a token. They have no direct SQLite or
-    RPC access. Dashboard wiring for boost and
-    vSHIP is not part of this scope.
+  - The dashboard, overview, and admin pages are static browser code. The
+    dashboard and overview call public GET routes. The admin page sends
+    `Authorization: Bearer` only on boost PUTs and loads history without a
+    token. They have no direct SQLite or RPC access. Dashboard wiring for boost
+    and vSHIP is not part of this scope.
 
 ## Database Ownership
 
@@ -276,6 +276,17 @@ Public endpoints:
   - Serves the local HTML dashboard.
   - The dashboard loads `/dashboard/styles.css` and `/dashboard/app.js`, then
     calls `/health`, `/vault`, and `/accounts/:address` from the browser.
+- `GET /overview`
+  - Serves the director-facing overview page.
+  - The page loads `/overview/styles.css` and `/overview/app.js`, then calls
+    `/overview/stats`.
+- `GET /overview/stats`
+  - Aggregates existing SQLite state into totals (assets, deposited, earned,
+    wallet count), chart series for `windowDays=7|30|90` (default `7`), and top
+    wallets by current position value. Asset history is reconstructed from
+    deposit, withdraw, and accrue-interest events (not only recent share-price
+    snapshots). Volume day buckets estimate event time from the latest snapshot
+    block/time using Base ~2s block spacing.
 - `GET /admin`
   - Serves the local HTML admin page.
   - The page loads `/admin/app.js`, sends the API key only on boost PUTs, and

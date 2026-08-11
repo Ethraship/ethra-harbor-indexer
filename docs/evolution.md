@@ -2,6 +2,15 @@
 
 ## 2026-08-11
 
+- Area: director overview dashboard
+- Changed: added `/overview` static page and `GET /overview/stats` aggregate
+  read that surfaces total assets, deposited, earned, wallet count, selectable
+  7/30/90-day Chart.js charts (default 7) with hover tooltips, and top wallets
+  by current position. Asset history is reconstructed from deposit/withdraw/
+  accrue events so it covers indexed history beyond recent snapshots.
+- Why: company directors need a simple analytics overview without raw chain
+  values or the tech-facing dashboard lookup UI.
+
 - Area: local admin page and public boost history reads
 - Changed: added a static `/admin` page that sends `ADMIN_API_TOKEN` only on
   boost PUTs, and made `GET /admin/boost/changes` plus
