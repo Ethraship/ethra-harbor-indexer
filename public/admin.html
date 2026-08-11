@@ -102,6 +102,20 @@
       <section class="panel account-panel">
         <div class="panel-heading account-heading">
           <div>
+            <h2>Wallet additional boosts</h2>
+            <p class="panel-copy">GET /admin/boost/wallets — no API key; Remove uses key</p>
+          </div>
+          <button class="button button-secondary" id="load-wallet-boosts-button" type="button">
+            Load
+          </button>
+        </div>
+        <p class="error-text" id="wallet-boosts-error" hidden></p>
+        <div class="empty-state" id="wallet-boosts-result">No request yet.</div>
+      </section>
+
+      <section class="panel account-panel">
+        <div class="panel-heading account-heading">
+          <div>
             <h2>Boost changes</h2>
             <p class="panel-copy">GET /admin/boost/changes — no API key</p>
           </div>

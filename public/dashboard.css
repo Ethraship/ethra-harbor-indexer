@@ -394,6 +394,31 @@ pre.empty-state {
   }
 }
 
+.wallet-boosts-table {
+  width: 100%;
+  border-collapse: collapse;
+  font-size: 0.9rem;
+}
+
+.wallet-boosts-table th,
+.wallet-boosts-table td {
+  text-align: left;
+  padding: 10px 8px;
+  border-bottom: 1px solid var(--border);
+  vertical-align: middle;
+}
+
+.wallet-boosts-table th {
+  color: var(--muted);
+  font-size: 0.8rem;
+}
+
+.wallet-boosts-table code {
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.82rem;
+  overflow-wrap: anywhere;
+}
+
 @media (prefers-reduced-motion: reduce) {
   *,
   *::before,

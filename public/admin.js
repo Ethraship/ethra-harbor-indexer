@@ -11,6 +11,9 @@ const elements = {
   walletBoostButton: document.getElementById("wallet-boost-button"),
   walletBoostError: document.getElementById("wallet-boost-error"),
   walletBoostResult: document.getElementById("wallet-boost-result"),
+  loadWalletBoostsButton: document.getElementById("load-wallet-boosts-button"),
+  walletBoostsError: document.getElementById("wallet-boosts-error"),
+  walletBoostsResult: document.getElementById("wallet-boosts-result"),
   loadChangesButton: document.getElementById("load-changes-button"),
   changesError: document.getElementById("changes-error"),
   changesResult: document.getElementById("changes-result"),
@@ -128,6 +131,76 @@ async function submitWalletBoost() {
   }
 }
 
+function renderWalletBoosts(rows) {
+  if (!Array.isArray(rows) || rows.length === 0) {
+    elements.walletBoostsResult.textContent = "No wallets with additional boost.";
+    elements.walletBoostsResult.className = "empty-state";
+    return;
+  }
+
+  const table = document.createElement("table");
+  table.className = "wallet-boosts-table";
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>Address</th>
+        <th>Additional boost bps</th>
+        <th></th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  `;
+  const tbody = table.querySelector("tbody");
+  for (const row of rows) {
+    const tr = document.createElement("tr");
+    tr.dataset.address = row.address;
+    tr.innerHTML = `
+      <td><code></code></td>
+      <td></td>
+      <td><button class="button button-secondary" type="button">Remove</button></td>
+    `;
+    tr.querySelector("code").textContent = row.address;
+    tr.children[1].textContent = row.additionalBoostBps;
+    tr.querySelector("button").addEventListener("click", () => {
+      void removeWalletBoost(row.address);
+    });
+    tbody.appendChild(tr);
+  }
+
+  elements.walletBoostsResult.className = "";
+  elements.walletBoostsResult.replaceChildren(table);
+}
+
+async function loadWalletBoosts() {
+  clearError(elements.walletBoostsError);
+  setBusy(elements.loadWalletBoostsButton, "Loading");
+  try {
+    const body = await fetchJson("/admin/boost/wallets");
+    renderWalletBoosts(body);
+  } catch (error) {
+    setError(elements.walletBoostsError, error.message);
+  } finally {
+    clearBusy(elements.loadWalletBoostsButton);
+  }
+}
+
+async function removeWalletBoost(address) {
+  clearError(elements.walletBoostsError);
+  try {
+    await fetchJsonWithApiKey(
+      `/admin/boost/wallets/${encodeURIComponent(address)}`,
+      {
+        method: "PUT",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ additionalBoostBps: "0" }),
+      },
+    );
+    await loadWalletBoosts();
+  } catch (error) {
+    setError(elements.walletBoostsError, error.message);
+  }
+}
+
 async function loadBoostChanges() {
   clearError(elements.changesError);
   setBusy(elements.loadChangesButton, "Loading");
@@ -171,6 +244,10 @@ elements.baseBoostForm.addEventListener("submit", (event) => {
 elements.walletBoostForm.addEventListener("submit", (event) => {
   event.preventDefault();
   void submitWalletBoost();
+});
+
+elements.loadWalletBoostsButton.addEventListener("click", () => {
+  void loadWalletBoosts();
 });
 
 elements.loadChangesButton.addEventListener("click", () => {
