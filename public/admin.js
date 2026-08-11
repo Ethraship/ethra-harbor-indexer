@@ -162,7 +162,7 @@ function renderWalletBoosts(rows) {
     tr.querySelector("code").textContent = row.address;
     tr.children[1].textContent = row.additionalBoostBps;
     tr.querySelector("button").addEventListener("click", () => {
-      void removeWalletBoost(row.address);
+      void removeWalletBoost(row.address, tr.querySelector("button"));
     });
     tbody.appendChild(tr);
   }
@@ -184,8 +184,9 @@ async function loadWalletBoosts() {
   }
 }
 
-async function removeWalletBoost(address) {
+async function removeWalletBoost(address, button) {
   clearError(elements.walletBoostsError);
+  setBusy(button, "Removing");
   try {
     await fetchJsonWithApiKey(
       `/admin/boost/wallets/${encodeURIComponent(address)}`,
@@ -198,6 +199,10 @@ async function removeWalletBoost(address) {
     await loadWalletBoosts();
   } catch (error) {
     setError(elements.walletBoostsError, error.message);
+  } finally {
+    if (document.body.contains(button)) {
+      clearBusy(button);
+    }
   }
 }
 
