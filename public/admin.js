@@ -11,6 +11,10 @@ const elements = {
   walletBoostButton: document.getElementById("wallet-boost-button"),
   walletBoostError: document.getElementById("wallet-boost-error"),
   walletBoostResult: document.getElementById("wallet-boost-result"),
+  bulkBoostFile: document.getElementById("bulk-boost-file"),
+  bulkBoostButton: document.getElementById("bulk-boost-button"),
+  bulkBoostError: document.getElementById("bulk-boost-error"),
+  bulkBoostResult: document.getElementById("bulk-boost-result"),
   loadWalletBoostsButton: document.getElementById("load-wallet-boosts-button"),
   walletBoostsError: document.getElementById("wallet-boosts-error"),
   walletBoostsResult: document.getElementById("wallet-boosts-result"),
@@ -81,6 +85,160 @@ function setBusy(button, busyText) {
 function clearBusy(button) {
   button.disabled = false;
   button.textContent = button.dataset.idleText || button.textContent;
+}
+
+function parseWalletBoostCsv(text) {
+  const normalized = text.replace(/^\uFEFF/, "").replace(/\r\n/g, "\n").replace(/\r/g, "\n");
+  if (!normalized.trim()) {
+    throw new Error("CSV is empty.");
+  }
+
+  let lines = normalized.split("\n");
+  if (lines.length > 0 && lines[lines.length - 1] === "") {
+    lines = lines.slice(0, -1);
+  }
+
+  if (lines.length < 2) {
+    throw new Error("CSV must include header wallet,boost and at least one data row.");
+  }
+
+  if (lines[0].trim() !== "wallet,boost") {
+    throw new Error('CSV header must be exactly "wallet,boost".');
+  }
+
+  const rows = [];
+  const seen = new Set();
+
+  for (let i = 1; i < lines.length; i += 1) {
+    const lineNumber = i + 1;
+    const line = lines[i];
+    if (line.trim() === "") {
+      throw new Error(`CSV line ${lineNumber}: blank lines are not allowed.`);
+    }
+
+    const parts = line.split(",");
+    if (parts.length !== 2) {
+      throw new Error(`CSV line ${lineNumber}: expected exactly two columns (wallet,boost).`);
+    }
+
+    const wallet = parts[0].trim();
+    const boost = parts[1].trim();
+
+    if (!/^0x[a-fA-F0-9]{40}$/.test(wallet)) {
+      throw new Error(`CSV line ${lineNumber}: invalid wallet address.`);
+    }
+    if (!/^\d+$/.test(boost)) {
+      throw new Error(`CSV line ${lineNumber}: boost must be a non-negative integer string.`);
+    }
+
+    const key = wallet.toLowerCase();
+    if (seen.has(key)) {
+      throw new Error(`CSV line ${lineNumber}: duplicate wallet ${wallet}.`);
+    }
+    seen.add(key);
+
+    rows.push({ lineNumber, wallet, boost });
+  }
+
+  if (rows.length === 0) {
+    throw new Error("CSV must include at least one data row.");
+  }
+
+  return { rows };
+}
+
+function renderBulkBoostResults(results) {
+  const ok = results.filter((r) => r.ok).length;
+  const failed = results.length - ok;
+  const summary = document.createElement("p");
+  summary.textContent = `Done: ${ok} succeeded, ${failed} failed (${results.length} total).`;
+
+  const table = document.createElement("table");
+  table.className = "wallet-boosts-table";
+  table.innerHTML = `
+    <thead>
+      <tr>
+        <th>Line</th>
+        <th>Wallet</th>
+        <th>Boost</th>
+        <th>Status</th>
+      </tr>
+    </thead>
+    <tbody></tbody>
+  `;
+  const tbody = table.querySelector("tbody");
+  for (const row of results) {
+    const tr = document.createElement("tr");
+    tr.innerHTML = `
+      <td></td>
+      <td><code></code></td>
+      <td></td>
+      <td></td>
+    `;
+    tr.children[0].textContent = String(row.lineNumber);
+    tr.querySelector("code").textContent = row.wallet;
+    tr.children[2].textContent = row.boost;
+    tr.children[3].textContent = row.ok ? "ok" : row.error;
+    tbody.appendChild(tr);
+  }
+
+  elements.bulkBoostResult.className = "";
+  elements.bulkBoostResult.replaceChildren(summary, table);
+}
+
+async function applyBulkWalletBoostCsv() {
+  clearError(elements.bulkBoostError);
+  const file = elements.bulkBoostFile.files?.[0];
+  if (!file) {
+    setError(elements.bulkBoostError, "Choose a CSV file first.");
+    return;
+  }
+
+  setBusy(elements.bulkBoostButton, "Applying");
+  try {
+    if (!getApiKey()) {
+      throw new Error("Enter an API key first.");
+    }
+
+    const text = await file.text();
+    const { rows } = parseWalletBoostCsv(text);
+
+    const results = [];
+    for (let i = 0; i < rows.length; i += 1) {
+      const row = rows[i];
+      elements.bulkBoostButton.textContent = `Applying ${i + 1}/${rows.length}`;
+      try {
+        await fetchJsonWithApiKey(
+          `/admin/boost/wallets/${encodeURIComponent(row.wallet)}`,
+          {
+            method: "PUT",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ additionalBoostBps: row.boost }),
+          },
+        );
+        results.push({
+          lineNumber: row.lineNumber,
+          wallet: row.wallet,
+          boost: row.boost,
+          ok: true,
+        });
+      } catch (error) {
+        results.push({
+          lineNumber: row.lineNumber,
+          wallet: row.wallet,
+          boost: row.boost,
+          ok: false,
+          error: error.message,
+        });
+      }
+    }
+
+    renderBulkBoostResults(results);
+  } catch (error) {
+    setError(elements.bulkBoostError, error.message);
+  } finally {
+    clearBusy(elements.bulkBoostButton);
+  }
 }
 
 async function submitBaseBoost() {
@@ -249,6 +407,10 @@ elements.baseBoostForm.addEventListener("submit", (event) => {
 elements.walletBoostForm.addEventListener("submit", (event) => {
   event.preventDefault();
   void submitWalletBoost();
+});
+
+elements.bulkBoostButton.addEventListener("click", () => {
+  void applyBulkWalletBoostCsv();
 });
 
 elements.loadWalletBoostsButton.addEventListener("click", () => {
