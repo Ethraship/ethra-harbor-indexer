@@ -308,6 +308,14 @@ input::placeholder {
   background: #fafbfc;
 }
 
+pre.empty-state {
+  margin: 0;
+  overflow: auto;
+  white-space: pre-wrap;
+  font-family: "SFMono-Regular", Consolas, "Liberation Mono", monospace;
+  font-size: 0.84rem;
+}
+
 .account-results {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));

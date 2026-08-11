@@ -2,6 +2,13 @@
 
 ## 2026-08-11
 
+- Area: local admin page and public boost history reads
+- Changed: added a static `/admin` page that sends `ADMIN_API_TOKEN` only on
+  boost PUTs, and made `GET /admin/boost/changes` plus
+  `GET /admin/vship/settlements/:address` public.
+- Why: operators need a local browser form for boost changes without requiring a
+  token to inspect history.
+
 - Area: vSHIP boost accounting and admin API documentation
 - Changed: documented the additive boost reward tables, sticky fee-watermark
   settlement semantics, extended account `boost`/`vship` fields, conditional

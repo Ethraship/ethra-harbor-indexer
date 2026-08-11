@@ -58,12 +58,14 @@ test("api serves the dashboard shell and static assets", async (t) => {
   runMigrations(db);
 
   const baseUrl = await startServer(server);
-  const [dashboardRes, dashboardSlashRes, cssRes, jsRes, missingRes] =
+  const [dashboardRes, dashboardSlashRes, cssRes, jsRes, adminRes, adminJsRes, missingRes] =
     await Promise.all([
       fetch(`${baseUrl}/dashboard`),
       fetch(`${baseUrl}/dashboard/`),
       fetch(`${baseUrl}/dashboard/styles.css`),
       fetch(`${baseUrl}/dashboard/app.js`),
+      fetch(`${baseUrl}/admin`),
+      fetch(`${baseUrl}/admin/app.js`),
       fetch(`${baseUrl}/dashboard/missing.js`),
     ]);
 
@@ -71,6 +73,8 @@ test("api serves the dashboard shell and static assets", async (t) => {
   assert.equal(dashboardSlashRes.status, 200);
   assert.equal(cssRes.status, 200);
   assert.equal(jsRes.status, 200);
+  assert.equal(adminRes.status, 200);
+  assert.equal(adminJsRes.status, 200);
   assert.equal(missingRes.status, 404);
 
   assert.match(dashboardRes.headers.get("content-type") ?? "", /^text\/html/);
@@ -81,6 +85,20 @@ test("api serves the dashboard shell and static assets", async (t) => {
   assert.match(html, /Ethra Harbor Dashboard/);
   assert.match(html, /\/dashboard\/styles\.css/);
   assert.match(html, /\/dashboard\/app\.js/);
+  assert.match(html, /href="\/admin"/);
+
+  const adminHtml = await adminRes.text();
+  assert.match(adminHtml, /Ethra Harbor Admin/);
+  assert.match(adminHtml, /\/admin\/app\.js/);
+  assert.match(adminHtml, /API key/);
+
+  const adminJs = await adminJsRes.text();
+  assert.match(adminJs, /\/admin\/boost\/base/);
+  assert.match(adminJs, /\/admin\/boost\/wallets\//);
+  assert.match(adminJs, /\/admin\/boost\/changes/);
+  assert.match(adminJs, /\/admin\/vship\/settlements\//);
+  assert.match(adminJs, /Authorization: `Bearer \$\{apiKey\}`/);
+  assert.doesNotMatch(adminJs, /fetchJsonWithApiKey\("\/admin\/boost\/changes"/);
 
   const js = await jsRes.text();
   assert.match(js, /Estimated net earned/);
@@ -1322,6 +1340,7 @@ test("public routes reject PUT requests", async (t) => {
   const baseUrl = await startServer(server);
   const responses = await Promise.all([
     fetch(`${baseUrl}/dashboard`, { method: "PUT" }),
+    fetch(`${baseUrl}/admin`, { method: "PUT" }),
     fetch(`${baseUrl}/health`, { method: "PUT" }),
     fetch(`${baseUrl}/vault`, { method: "PUT" }),
     fetch(`${baseUrl}/accounts/${ADMIN_ADDRESS}`, { method: "PUT" }),
@@ -1412,12 +1431,8 @@ test("PUT base boost settles and updates config when ready", async (t) => {
   assert.equal(account.vship.feeWatermarkRaw, "1000000");
 
   const [changesResponse, settlementsResponse] = await Promise.all([
-    fetch(`${baseUrl}/admin/boost/changes`, {
-      headers: { Authorization: "Bearer secret" },
-    }),
-    fetch(`${baseUrl}/admin/vship/settlements/${ADMIN_ADDRESS}`, {
-      headers: { Authorization: "Bearer secret" },
-    }),
+    fetch(`${baseUrl}/admin/boost/changes`),
+    fetch(`${baseUrl}/admin/vship/settlements/${ADMIN_ADDRESS}`),
   ]);
   const changes = await changesResponse.json();
   const settlements = await settlementsResponse.json();
@@ -1486,6 +1501,28 @@ test("PUT boost returns 409 when fee mint is stale", async (t) => {
   assert.deepEqual(await response.json(), { error: "fee mint is stale" });
 });
 
+test("admin history endpoints are public without a bearer token", async (t) => {
+  const db = openDatabase(":memory:");
+  const config = createConfig();
+  const server = createApiServer({ db, config, health: { safeHead: 1 } });
+  t.after(() => closeApiTestServer(server, db));
+  runMigrations(db);
+
+  const baseUrl = await startServer(server);
+  const [changesResponse, settlementsResponse, invalidSettlements] = await Promise.all([
+    fetch(`${baseUrl}/admin/boost/changes`),
+    fetch(`${baseUrl}/admin/vship/settlements/${ADMIN_ADDRESS}`),
+    fetch(`${baseUrl}/admin/vship/settlements/not-an-address`),
+  ]);
+
+  assert.equal(changesResponse.status, 200);
+  assert.deepEqual(await changesResponse.json(), []);
+  assert.equal(settlementsResponse.status, 200);
+  assert.deepEqual(await settlementsResponse.json(), []);
+  assert.equal(invalidSettlements.status, 400);
+  assert.deepEqual(await invalidSettlements.json(), { error: "invalid request" });
+});
+
 test("GET admin history endpoints return newest-first rows", async (t) => {
   const db = openDatabase(":memory:");
   const config = createConfig({ ADMIN_API_TOKEN: "secret" });
@@ -1535,8 +1572,8 @@ test("GET admin history endpoints return newest-first rows", async (t) => {
   });
 
   const [changesResponse, settlementsResponse] = await Promise.all([
-    fetch(`${baseUrl}/admin/boost/changes`, { headers }),
-    fetch(`${baseUrl}/admin/vship/settlements/${ADMIN_ADDRESS}`, { headers }),
+    fetch(`${baseUrl}/admin/boost/changes`),
+    fetch(`${baseUrl}/admin/vship/settlements/${ADMIN_ADDRESS}`),
   ]);
   const changes = await changesResponse.json();
   const settlements = await settlementsResponse.json();

@@ -13,10 +13,9 @@ Its job is to crawl deterministic on-chain vault events over HTTP JSON-RPC,
 persist replayable SQLite state, periodically snapshot vault valuation, and
 expose wallet and vault metrics. Wallet address is the only identity. Public
 HTTP reads are read-only; when `ADMIN_API_TOKEN` is configured, authenticated
-operator routes can update local boost accounting and read its audit history.
-The HTTP server also serves a small local dashboard for viewing public metrics
-without a separate frontend app; dashboard wiring for boost and vSHIP is out of
-scope.
+operator routes can update local boost accounting. Boost-change and settlement
+history GETs stay public. The HTTP server also serves a small local dashboard
+and a local admin page for those operator controls.
 
 ## Current Scope
 
@@ -45,7 +44,9 @@ Vault-level reads expose total supply, latest share-price snapshot, share price,
 and cumulative performance-fee shares and value.
 
 The bundled dashboard shows API health, vault metrics, and one wallet lookup by
-calling the same read-only JSON routes from the browser.
+calling the same read-only JSON routes from the browser. The bundled admin page
+can change base or wallet boosts with an API key and can load history without
+one.
 
 ## System Shape
 
@@ -62,10 +63,9 @@ on-chain token or submit chain transactions.
 ## Non-Goals
 
 - No multi-wallet identity mapping or external account system
-- No unauthenticated write API; optional authenticated admin routes exist only
+- No unauthenticated write API; optional authenticated boost PUTs exist only
   when `ADMIN_API_TOKEN` is configured
 - No Morpho vault move or migration
-- No dashboard wiring for boost/vSHIP fields
 - No on-chain boost or reward transactions
 - No admin vSHIP price API; the seeded price remains `$0.05`
 - No real-time push transport; polling and snapshots only

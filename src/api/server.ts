@@ -45,6 +45,27 @@ const DASHBOARD_ASSETS = new Map<string, { fileName: string; contentType: string
       contentType: "text/javascript; charset=utf-8",
     },
   ],
+  [
+    "/admin",
+    {
+      fileName: "admin.html",
+      contentType: "text/html; charset=utf-8",
+    },
+  ],
+  [
+    "/admin/",
+    {
+      fileName: "admin.html",
+      contentType: "text/html; charset=utf-8",
+    },
+  ],
+  [
+    "/admin/app.js",
+    {
+      fileName: "admin.js",
+      contentType: "text/javascript; charset=utf-8",
+    },
+  ],
 ]);
 
 export interface ApiServerDependencies {
@@ -117,14 +138,28 @@ export function createApiServer(dependencies: ApiServerDependencies): http.Serve
       return;
     }
 
-    if (url.pathname.startsWith("/admin")) {
-      if (!adminEnabled) {
-        writeJson(response, 404, { error: "not found" });
-        return;
-      }
-      if (!requireAdminAuth(request, config.adminApiToken!)) {
-        writeJson(response, 401, { error: "unauthorized" });
-        return;
+    if (
+      (request.method === "GET" || request.method === "HEAD") &&
+      tryWriteDashboardAsset(response, url.pathname)
+    ) {
+      return;
+    }
+
+    if (url.pathname.startsWith("/admin/")) {
+      const isPublicAdminRead =
+        request.method === "GET" &&
+        (url.pathname === "/admin/boost/changes" ||
+          /^\/admin\/vship\/settlements\/[^/]+$/.test(url.pathname));
+
+      if (!isPublicAdminRead) {
+        if (!adminEnabled) {
+          writeJson(response, 404, { error: "not found" });
+          return;
+        }
+        if (!requireAdminAuth(request, config.adminApiToken!)) {
+          writeJson(response, 401, { error: "unauthorized" });
+          return;
+        }
       }
 
       try {
@@ -155,10 +190,6 @@ export function createApiServer(dependencies: ApiServerDependencies): http.Serve
 
     if (request.method === "PUT") {
       writeJson(response, 404, { error: "not found" });
-      return;
-    }
-
-    if (tryWriteDashboardAsset(response, url.pathname)) {
       return;
     }
 

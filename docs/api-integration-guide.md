@@ -60,12 +60,15 @@ strings. They intentionally avoid JSON floating-point precision loss.
 | `GET` | `/accounts/:address` | `200` or `400` | `application/json` | Metrics for one wallet address |
 | `PUT` | `/admin/boost/base` | `200`, `400`, `401`, `404`, `409`, or `500` | `application/json` | Authenticated local base-boost mutation (token required) |
 | `PUT` | `/admin/boost/wallets/:address` | `200`, `400`, `401`, `404`, `409`, or `500` | `application/json` | Authenticated local wallet-boost mutation (token required) |
-| `GET` | `/admin/boost/changes` | `200`, `401`, or `404` | `application/json` | Authenticated newest-first boost history (token required) |
-| `GET` | `/admin/vship/settlements/:address` | `200`, `400`, `401`, or `404` | `application/json` | Authenticated newest-first settlement history (token required) |
+| `GET` | `/admin/boost/changes` | `200` | `application/json` | Newest-first boost history (no token) |
+| `GET` | `/admin/vship/settlements/:address` | `200` or `400` | `application/json` | Newest-first settlement history (no token) |
 | `GET` | `/dashboard` | `200` | `text/html; charset=utf-8` | Local browser dashboard |
 | `GET` | `/dashboard/` | `200` | `text/html; charset=utf-8` | Local browser dashboard |
 | `GET` | `/dashboard/styles.css` | `200` | `text/css; charset=utf-8` | Dashboard stylesheet |
 | `GET` | `/dashboard/app.js` | `200` | `text/javascript; charset=utf-8` | Dashboard script |
+| `GET` | `/admin` | `200` | `text/html; charset=utf-8` | Local browser admin page |
+| `GET` | `/admin/` | `200` | `text/html; charset=utf-8` | Local browser admin page |
+| `GET` | `/admin/app.js` | `200` | `text/javascript; charset=utf-8` | Admin script |
 
 Unknown paths return `404` JSON:
 
@@ -536,10 +539,13 @@ vSHIP as indexer accounting, not an on-chain mint or a dashboard balance.
 
 ## Optional Admin Routes
 
-Admin routes are registered only when `ADMIN_API_TOKEN` is present and
-non-empty. Without a configured token, every `/admin/*` request returns `404`.
-When enabled, every admin request requires the exact header
+Boost mutation routes are registered only when `ADMIN_API_TOKEN` is present and
+non-empty. Without a configured token, `PUT /admin/boost/*` returns `404`.
+When enabled, those PUTs require the exact header
 `Authorization: Bearer <token>`; a missing or incorrect token returns `401`.
+`GET /admin/boost/changes` and `GET /admin/vship/settlements/:address` stay
+public and do not require a token. The local `/admin` page is also public
+static HTML.
 
 ### `PUT /admin/boost/base`
 

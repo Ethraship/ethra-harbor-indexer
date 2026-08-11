@@ -178,6 +178,8 @@ client integration guidance, see
 
 - `GET /dashboard`
   - Serves a browser dashboard for health, vault metrics, and account lookup
+- `GET /admin`
+  - Serves a local operator page for boost mutations and history reads
 - `GET /health`
   - Returns `{ status, cursorBlock, safeHead, safeHeadKnown, syncedToSafeHead }`
 - `GET /vault`
@@ -193,17 +195,17 @@ client integration guidance, see
 - `PUT /admin/boost/wallets/:address`
   - When enabled, updates one wallet's additive boost with the same gates/auth
 - `GET /admin/boost/changes`
-  - When enabled, returns newest-first boost history with decimal-string bps
+  - Returns newest-first boost history with decimal-string bps; no token
 - `GET /admin/vship/settlements/:address`
-  - When enabled, returns newest-first positive fee-delta settlement history
+  - Returns newest-first positive fee-delta settlement history; no token
 
-When `ADMIN_API_TOKEN` is absent or blank, every `/admin/*` route returns `404`.
-With a configured token, missing or incorrect bearer auth returns `401`. Admin
-boost PUTs return `409` when safe-head/cursor/valuation readiness is missing or
-the performance-fee mint is stale (default threshold `20000` blocks); invalid
-input returns `400` and unexpected transaction failures return `500` with a full
-SQLite rollback. Unknown routes return `404`. Invalid public account addresses
-return `400`.
+When `ADMIN_API_TOKEN` is absent or blank, boost PUTs return `404`. With a
+configured token, missing or incorrect bearer auth on those PUTs returns `401`.
+History GETs and the `/admin` page stay public. Admin boost PUTs return `409`
+when safe-head/cursor/valuation readiness is missing or the performance-fee mint
+is stale (default threshold `20000` blocks); invalid input returns `400` and
+unexpected transaction failures return `500` with a full SQLite rollback.
+Unknown routes return `404`. Invalid public account addresses return `400`.
 
 ## Cursor, Replay, And Dev-Stage Reset
 

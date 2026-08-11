@@ -43,9 +43,10 @@ mobile, wallet UX, or user-profile systems.
 7. `src/api/`
    - Serves public JSON responses for health, vault metrics, and per-address
      metrics without mutating database state.
-   - When `ADMIN_API_TOKEN` is non-empty, also authenticates boost mutations and
-     history reads under `/admin/*`.
-   - Serves known static dashboard assets from `public/` at `/dashboard`.
+   - When `ADMIN_API_TOKEN` is non-empty, also authenticates boost mutations
+     under `/admin/*`. Boost-change and settlement history GETs stay public.
+   - Serves known static dashboard and admin assets from `public/` at
+     `/dashboard` and `/admin`.
 8. `src/index.ts`
    - Bootstraps config, DB, provider, crawler, snapshotter, optional API
      server, and graceful shutdown wiring.
@@ -65,8 +66,10 @@ mobile, wallet UX, or user-profile systems.
   - Public HTTP request paths read SQLite only and do not mutate cursors or hit
     RPC. The optional authenticated `/admin/*` mutation paths write only the
     reward tables described below; they do not write chain state.
-  - The dashboard is static browser code. It calls the public GET routes and has
-    no direct SQLite, RPC, or admin-route access. Dashboard wiring for boost and
+  - The dashboard and admin pages are static browser code. The dashboard calls
+    public GET routes. The admin page sends `Authorization: Bearer` only on
+    boost PUTs and loads history without a token. They have no direct SQLite or
+    RPC access. Dashboard wiring for boost and
     vSHIP is not part of this scope.
 
 ## Database Ownership
@@ -273,6 +276,10 @@ Public endpoints:
   - Serves the local HTML dashboard.
   - The dashboard loads `/dashboard/styles.css` and `/dashboard/app.js`, then
     calls `/health`, `/vault`, and `/accounts/:address` from the browser.
+- `GET /admin`
+  - Serves the local HTML admin page.
+  - The page loads `/admin/app.js`, sends the API key only on boost PUTs, and
+    loads history GETs without a token.
 - `GET /health`
   - Returns process-readiness style metadata:
     `{ status, cursorBlock, safeHead, safeHeadKnown, syncedToSafeHead }`
@@ -296,16 +303,20 @@ that create cursor or vault-state rows. Dashboard static file serving is
 constrained to a fixed asset map and is not a general-purpose file server.
 
 When `ADMIN_API_TOKEN` is present and non-empty, the server additionally exposes
-these authenticated routes:
+these authenticated mutation routes:
 
 - `PUT /admin/boost/base` with `{ "baseBoostBps": "..." }`
 - `PUT /admin/boost/wallets/:address` with `{ "additionalBoostBps": "..." }`
+
+These public admin reads do not require a token:
+
 - `GET /admin/boost/changes`
 - `GET /admin/vship/settlements/:address`
+- `GET /admin` and `GET /admin/app.js` for the local operator page
 
-Every enabled admin request requires `Authorization: Bearer <token>`. If the
-token is absent or blank, every `/admin/*` route returns `404`; with a token,
-missing or incorrect authentication returns `401`. Boost PUTs return `409`
+Enabled boost PUTs require `Authorization: Bearer <token>`. If the token is
+absent or blank, those PUTs return `404`; with a token, missing or incorrect
+authentication returns `401`. Boost PUTs return `409`
 `{"error":"indexer not ready"}` unless a safe head is known, the cursor has
 reached it, and a usable valuation snapshot exists. They return `409`
 `{"error":"fee mint is stale"}` when the freshest local block reference is at
