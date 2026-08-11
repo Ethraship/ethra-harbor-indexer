@@ -329,6 +329,22 @@ export function listWalletBoostAddresses(db: Database.Database): string[] {
   `).all() as Array<{ address: string }>).map((row) => row.address);
 }
 
+export function listWalletBoosts(
+  db: Database.Database,
+): Array<{ address: string; additionalBoostBps: bigint }> {
+  const rows = db.prepare(`
+    SELECT address, additional_boost_bps
+    FROM wallet_boost
+    WHERE CAST(additional_boost_bps AS INTEGER) > 0
+    ORDER BY address ASC
+  `).all() as Array<{ address: string; additional_boost_bps: string }>;
+
+  return rows.map((row) => ({
+    address: row.address,
+    additionalBoostBps: BigInt(row.additional_boost_bps),
+  }));
+}
+
 export function listWalletVshipAddresses(db: Database.Database): string[] {
   return (db.prepare(`
     SELECT address

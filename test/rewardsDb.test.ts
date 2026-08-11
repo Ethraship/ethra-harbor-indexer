@@ -11,6 +11,7 @@ import {
   listBoostChangeEvents,
   insertVshipSettlementEvent,
   listVshipSettlementEvents,
+  listWalletBoosts,
 } from "../src/db/rewards";
 
 test("migration seeds reward_config at 4x and $0.05", () => {
@@ -87,6 +88,26 @@ test("boost change and settlement events list newest first", () => {
     );
     assert.equal(settlements.length, 1);
     assert.equal(settlements[0]!.vshipMintedRaw, 8000n);
+  } finally {
+    closeDatabase(db);
+  }
+});
+
+test("listWalletBoosts returns only positive boosts sorted by address", () => {
+  const db = openDatabase(":memory:");
+  try {
+    runMigrations(db);
+    const low = "0x1111111111111111111111111111111111111111";
+    const high = "0xAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAAA";
+    const zeroed = "0x2222222222222222222222222222222222222222";
+    upsertWalletAdditionalBoostBps(db, high, 50000n, 1);
+    upsertWalletAdditionalBoostBps(db, low, 100000n, 1);
+    upsertWalletAdditionalBoostBps(db, zeroed, 0n, 1);
+
+    assert.deepEqual(listWalletBoosts(db), [
+      { address: "0x1111111111111111111111111111111111111111", additionalBoostBps: 100000n },
+      { address: "0xaAaAaAaaAaAaAaaAaAAAAAAAAaaaAaAaAaaAaaAa", additionalBoostBps: 50000n },
+    ]);
   } finally {
     closeDatabase(db);
   }
