@@ -150,6 +150,19 @@ test("dashboard renders estimated account earnings and explicit null freshness",
     estimatedPerformanceFee: {
       raw: "150",
     },
+    boost: {
+      baseBoostBps: "40000",
+      additionalBoostBps: "100000",
+      totalBoostBps: "140000",
+    },
+    vship: {
+      crystallizedRaw: "80000000",
+      pendingRaw: "280000000",
+      totalRaw: "360000000",
+      feeWatermarkRaw: "1000000",
+      priceUsdRaw: "50000",
+      priceUsdDecimals: 6,
+    },
     grossLifetimeEarned: {
       raw: "300",
     },
@@ -173,6 +186,15 @@ test("dashboard renders estimated account earnings and explicit null freshness",
   assert.equal(metricValue(results, "Estimated performance fee"), "0.00015 USDC");
   assert.equal(metricValue(results, "Crystallized fee value"), "0.00012 USDC");
   assert.equal(metricValue(results, "Performance fee rate"), "50%");
+  assert.equal(metricValue(results, "Base boost"), "4×");
+  assert.equal(metricValue(results, "Additional boost"), "10×");
+  assert.equal(metricValue(results, "Total boost"), "14×");
+  assert.equal(metricRaw(results, "Total boost"), "raw: 140000");
+  assert.equal(metricValue(results, "Crystallized"), "80 vSHIP");
+  assert.equal(metricValue(results, "Pending"), "280 vSHIP");
+  assert.equal(metricValue(results, "Total"), "360 vSHIP");
+  assert.equal(metricValue(results, "Fee watermark"), "1 USDC");
+  assert.equal(metricValue(results, "vSHIP price"), "0.05 USD");
   assert.equal(metricValue(results, "Current block"), "Unknown");
   assert.equal(metricRaw(results, "Current block"), "raw: null");
   assert.equal(metricValue(results, "Last processed log"), "48,750,890");

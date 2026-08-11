@@ -78,6 +78,26 @@ function formatBps(value) {
   return `${display}%`;
 }
 
+function formatBoostMultiplier(value) {
+  if (value === null || value === undefined) {
+    return "Unknown";
+  }
+
+  const bps = Number(value);
+  if (!Number.isFinite(bps) || bps < 0) {
+    return "Unknown";
+  }
+
+  const multiplier = bps / 10_000;
+  const display = Number.isInteger(multiplier)
+    ? String(multiplier)
+    : new Intl.NumberFormat(undefined, {
+        maximumFractionDigits: 2,
+      }).format(multiplier);
+
+  return `${display}×`;
+}
+
 function formatTimestamp(value) {
   if (value === null || value === undefined) {
     return "Not captured yet";
@@ -231,6 +251,10 @@ function renderAccount(data) {
     performanceFeeRateBps: null,
   };
   const blockContext = data.blockContext ?? {};
+  const boost = data.boost ?? {};
+  const vship = data.vship ?? {};
+  const vshipPriceDecimals =
+    typeof vship.priceUsdDecimals === "number" ? vship.priceUsdDecimals : USDC_DECIMALS;
 
   elements.accountEmpty.hidden = true;
   elements.accountResults.hidden = false;
@@ -297,6 +321,50 @@ function renderAccount(data) {
         label: "Performance fee rate",
         value: formatBps(estimatedNetLifetimeEarned.performanceFeeRateBps),
         raw: estimatedNetLifetimeEarned.performanceFeeRateBps,
+      },
+    ]),
+    makeMetricSection("Boost", [
+      {
+        label: "Base boost",
+        value: formatBoostMultiplier(boost.baseBoostBps),
+        raw: boost.baseBoostBps,
+      },
+      {
+        label: "Additional boost",
+        value: formatBoostMultiplier(boost.additionalBoostBps),
+        raw: boost.additionalBoostBps,
+      },
+      {
+        label: "Total boost",
+        value: formatBoostMultiplier(boost.totalBoostBps),
+        raw: boost.totalBoostBps,
+      },
+    ]),
+    makeMetricSection("$vShip", [
+      {
+        label: "Crystallized",
+        value: formatRawDecimal(vship.crystallizedRaw, USDC_DECIMALS, "vSHIP"),
+        raw: vship.crystallizedRaw,
+      },
+      {
+        label: "Pending",
+        value: formatRawDecimal(vship.pendingRaw, USDC_DECIMALS, "vSHIP"),
+        raw: vship.pendingRaw,
+      },
+      {
+        label: "Total",
+        value: formatRawDecimal(vship.totalRaw, USDC_DECIMALS, "vSHIP"),
+        raw: vship.totalRaw,
+      },
+      {
+        label: "Fee watermark",
+        value: formatRawDecimal(vship.feeWatermarkRaw, USDC_DECIMALS, "USDC"),
+        raw: vship.feeWatermarkRaw,
+      },
+      {
+        label: "vSHIP price",
+        value: formatRawDecimal(vship.priceUsdRaw, vshipPriceDecimals, "USD"),
+        raw: vship.priceUsdRaw,
       },
     ]),
     makeMetricSection("Estimate freshness", [
