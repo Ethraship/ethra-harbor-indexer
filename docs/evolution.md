@@ -2,6 +2,12 @@
 
 ## 2026-08-11
 
+- Area: admin wallet boost list
+- Changed: added public `GET /admin/boost/wallets` and an on-demand admin panel
+  with Remove (PUT additional boost to 0).
+- Why: operators need a quick view of active additional boosts and a one-click
+  clear without hunting addresses.
+
 - Area: director overview dashboard
 - Changed: added `/overview` static page and `GET /overview/stats` aggregate
   read that surfaces total assets, deposited, earned, wallet count, selectable

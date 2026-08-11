@@ -44,7 +44,8 @@ mobile, wallet UX, or user-profile systems.
    - Serves public JSON responses for health, vault metrics, overview aggregates,
      and per-address metrics without mutating database state.
    - When `ADMIN_API_TOKEN` is non-empty, also authenticates boost mutations
-     under `/admin/*`. Boost-change and settlement history GETs stay public.
+     under `/admin/*`. Boost-change, wallet-boost list, and settlement history
+     GETs stay public.
    - Serves known static dashboard, overview, and admin assets from `public/` at
      `/dashboard`, `/overview`, and `/admin`.
 8. `src/index.ts`
@@ -68,8 +69,9 @@ mobile, wallet UX, or user-profile systems.
     reward tables described below; they do not write chain state.
   - The dashboard, overview, and admin pages are static browser code. The
     dashboard and overview call public GET routes. The admin page sends
-    `Authorization: Bearer` only on boost PUTs and loads history without a
-    token. They have no direct SQLite or RPC access. Dashboard wiring for boost
+    `Authorization: Bearer` only on boost PUTs, loads history and the
+    wallet-boost list without a token, and clears additional boosts via PUT with
+    `"0"`. They have no direct SQLite or RPC access. Dashboard wiring for boost
     and vSHIP is not part of this scope.
 
 ## Database Ownership
@@ -289,8 +291,9 @@ Public endpoints:
     block/time using Base ~2s block spacing.
 - `GET /admin`
   - Serves the local HTML admin page.
-  - The page loads `/admin/app.js`, sends the API key only on boost PUTs, and
-    loads history GETs without a token.
+  - The page loads `/admin/app.js`, sends the API key only on boost PUTs, loads
+    history and the wallet-boost list without a token, and clears additional
+    boosts from the on-demand panel via PUT with `"0"`.
 - `GET /health`
   - Returns process-readiness style metadata:
     `{ status, cursorBlock, safeHead, safeHeadKnown, syncedToSafeHead }`
@@ -322,8 +325,13 @@ these authenticated mutation routes:
 These public admin reads do not require a token:
 
 - `GET /admin/boost/changes`
+- `GET /admin/boost/wallets` — wallets with non-zero `additionalBoostBps`
+  (decimal strings), sorted by address
 - `GET /admin/vship/settlements/:address`
 - `GET /admin` and `GET /admin/app.js` for the local operator page
+
+Remove continues to use authenticated `PUT /admin/boost/wallets/:address` with
+`{ "additionalBoostBps": "0" }`.
 
 Enabled boost PUTs require `Authorization: Bearer <token>`. If the token is
 absent or blank, those PUTs return `404`; with a token, missing or incorrect
