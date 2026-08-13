@@ -1,6 +1,6 @@
 # Ethra Harbor Indexer Overview
 
-Last updated: 2026-08-11
+Last updated: 2026-08-13
 
 ## Product Intent
 
@@ -46,8 +46,9 @@ and cumulative performance-fee shares and value.
 The bundled dashboard shows API health, vault metrics, and one wallet lookup by
 calling the same read-only JSON routes from the browser. The bundled overview
 page at `/overview` shows director-facing vault totals, selectable 7/30/90-day
-charts, and top wallets from `GET /overview/stats`. The bundled admin page can
-change base or wallet boosts with an API key and can load history without one.
+charts, and the top 100 wallets (full addresses) from `GET /overview/stats`. The
+bundled admin page can change base or wallet boosts with an API key and can load
+history without one.
 
 ## System Shape
 

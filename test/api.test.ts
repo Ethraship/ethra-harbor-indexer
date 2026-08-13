@@ -19,6 +19,7 @@ import {
   upsertVaultState,
 } from "../src/db";
 import { SCALE } from "../src/indexer/ledger";
+import { getOverviewStats, OVERVIEW_TOP_WALLETS_LIMIT } from "../src/api/overview";
 import { createApiServer } from "../src/api/server";
 
 function createConfig(overrides: Record<string, string> = {}) {
@@ -117,12 +118,14 @@ test("api serves the dashboard shell and static assets", async (t) => {
   assert.match(overviewHtml, /\/overview\/app\.js/);
   assert.match(overviewHtml, /\/overview\/chart\.umd\.min\.js/);
   assert.match(overviewHtml, /Total assets/);
-  assert.match(overviewHtml, /Top wallets/);
+  assert.match(overviewHtml, /Top 100 wallets/);
 
   const overviewJs = await overviewJsRes.text();
   assert.match(overviewJs, /\/overview\/stats/);
   assert.match(overviewJs, /windowDays=/);
   assert.match(overviewJs, /new Chart/);
+  assert.match(overviewJs, /wallet\.address/);
+  assert.doesNotMatch(overviewJs, /truncateAddress/);
   assert.doesNotMatch(overviewJs, /raw:/);
 
   const overviewChart = await overviewChartRes.text();
@@ -302,6 +305,63 @@ test("api serves overview stats aggregated from indexed state", async (t) => {
   const badRes = await fetch(`${baseUrl}/overview/stats?windowDays=60`);
   assert.equal(badRes.status, 400);
   assert.deepEqual(await badRes.json(), { error: "invalid windowDays" });
+});
+
+test("overview stats returns at most 100 top wallets by current position", () => {
+  const db = openDatabase(":memory:");
+  const config = createConfig();
+
+  try {
+    runMigrations(db);
+    getOrCreateVaultCursor(db, config);
+    db.prepare(`
+      UPDATE indexer_state
+      SET last_scanned_block = ?
+    `).run(48700010);
+
+    upsertVaultState(db, config, {
+      globalIndexRaw: (SCALE / 10n).toString(),
+      totalSupplyRaw: "101000000000000000000",
+      cumulativePerfFeeSharesRaw: "0",
+      cumulativeMgmtFeeSharesRaw: "0",
+      updatedBlockNumber: 48700000,
+    });
+    insertSnapshot(db, {
+      blockNumber: 48700010,
+      totalAssetsRaw: "101000000",
+      totalSupplyRaw: "101000000000000000000",
+      capturedAt: Date.now(),
+    });
+
+    const walletCount = OVERVIEW_TOP_WALLETS_LIMIT + 1;
+    for (let index = 1; index <= walletCount; index += 1) {
+      const address = getAddress(`0x${index.toString(16).padStart(40, "0")}`);
+      upsertAccountPosition(db, {
+        address,
+        balanceRaw: `${walletCount + 1 - index}000000000000000000`,
+        rewardDebtRaw: "0",
+        earnedPerfFeeSharesRaw: "0",
+        lifetimeDepositedRaw: `${walletCount + 1 - index}000000`,
+        lifetimeWithdrawnRaw: "0",
+        updatedBlockNumber: 48700000,
+        updatedLogIndex: index,
+      });
+    }
+
+    const stats = getOverviewStats(db, config);
+    assert.equal(stats.totals.totalWallets, walletCount);
+    assert.equal(stats.topWallets.length, OVERVIEW_TOP_WALLETS_LIMIT);
+    assert.equal(
+      stats.topWallets[0]?.address,
+      getAddress(`0x${"1".padStart(40, "0")}`),
+    );
+    assert.equal(
+      stats.topWallets.at(-1)?.address,
+      getAddress(`0x${OVERVIEW_TOP_WALLETS_LIMIT.toString(16).padStart(40, "0")}`),
+    );
+  } finally {
+    closeDatabase(db);
+  }
 });
 
 test("api serves account, vault, and health metrics from indexed state", async (t) => {

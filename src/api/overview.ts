@@ -6,6 +6,7 @@ import { getAccountMetrics, getVaultMetrics } from "./queries";
 export const OVERVIEW_WINDOW_DAYS = [7, 30, 90] as const;
 export type OverviewWindowDays = (typeof OVERVIEW_WINDOW_DAYS)[number];
 export const DEFAULT_OVERVIEW_WINDOW_DAYS: OverviewWindowDays = 7;
+export const OVERVIEW_TOP_WALLETS_LIMIT = 100;
 
 const MS_PER_DAY = 24 * 60 * 60 * 1000;
 const BASE_MS_PER_BLOCK = 2000;
@@ -357,7 +358,7 @@ export function getOverviewStats(
     },
     assetsOverTime,
     volumeOverTime,
-    topWallets: walletValues.slice(0, 10).map((wallet) => ({
+    topWallets: walletValues.slice(0, OVERVIEW_TOP_WALLETS_LIMIT).map((wallet) => ({
       address: wallet.address,
       netValueRaw: wallet.netValueRaw.toString(),
     })),

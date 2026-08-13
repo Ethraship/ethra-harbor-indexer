@@ -253,7 +253,7 @@ h2 {
 }
 
 .wallet-rank {
-  width: 28px;
+  width: 36px;
   height: 28px;
   border-radius: 8px;
   background: var(--accent-soft);
@@ -265,11 +265,12 @@ h2 {
 }
 
 .wallet-address {
-  overflow: hidden;
   color: var(--ink);
-  font-weight: 700;
-  text-overflow: ellipsis;
-  white-space: nowrap;
+  font-family: ui-monospace, SFMono-Regular, Menlo, Monaco, Consolas, monospace;
+  font-size: 0.82rem;
+  font-weight: 600;
+  letter-spacing: 0;
+  overflow-wrap: anywhere;
 }
 
 .wallet-value {

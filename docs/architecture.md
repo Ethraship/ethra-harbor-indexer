@@ -285,7 +285,7 @@ Public endpoints:
 - `GET /overview/stats`
   - Aggregates existing SQLite state into totals (assets, deposited, earned,
     wallet count), chart series for `windowDays=7|30|90` (default `7`), and top
-    wallets by current position value. Asset history is reconstructed from
+    100 wallets by current position value. Asset history is reconstructed from
     deposit, withdraw, and accrue-interest events (not only recent share-price
     snapshots). Volume day buckets estimate event time from the latest snapshot
     block/time using Base ~2s block spacing.

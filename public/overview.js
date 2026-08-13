@@ -71,14 +71,6 @@ function formatCount(value) {
   return groupDigits(String(value ?? 0));
 }
 
-function truncateAddress(address) {
-  if (!address || address.length < 12) {
-    return address ?? "—";
-  }
-
-  return `${address.slice(0, 6)}…${address.slice(-4)}`;
-}
-
 function formatShortDay(day) {
   const date = new Date(`${day}T00:00:00.000Z`);
   return new Intl.DateTimeFormat(undefined, {
@@ -244,7 +236,7 @@ function renderTopWallets(wallets) {
     ...wallets.map((wallet, index) => {
       const row = document.createElement("div");
       row.className = "wallet-row";
-      row.style.animationDelay = `${index * 30}ms`;
+      row.style.animationDelay = `${Math.min(index, 12) * 30}ms`;
 
       const rank = document.createElement("div");
       rank.className = "wallet-rank";
@@ -252,8 +244,7 @@ function renderTopWallets(wallets) {
 
       const address = document.createElement("div");
       address.className = "wallet-address";
-      address.textContent = truncateAddress(wallet.address);
-      address.title = wallet.address;
+      address.textContent = wallet.address;
 
       const value = document.createElement("div");
       value.className = "wallet-value";

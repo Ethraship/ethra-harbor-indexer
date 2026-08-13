@@ -1,5 +1,13 @@
 # Evolution
 
+## 2026-08-13
+
+- Area: director overview dashboard
+- Changed: `/overview` now lists the top 100 wallets by current position and
+  shows full wallet addresses instead of truncated ones.
+- Why: directors need to identify and copy wallets from the ranking without
+  hovering or guessing from a shortened prefix.
+
 ## 2026-08-11
 
 - Area: admin bulk wallet boost CSV
